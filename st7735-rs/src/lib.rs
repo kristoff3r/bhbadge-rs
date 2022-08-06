@@ -22,13 +22,8 @@
 //! display.draw_rect(30, 30, 60, 70, &Color::from_default(DefaultColor::Blue));
 //! ```
 #![no_std]
-#![feature(alloc, slice_concat_ext)]
 
 extern crate embedded_hal;
-#[macro_use]
-extern crate num_derive;
-#[macro_use]
-extern crate alloc;
 
 pub mod color;
 pub mod command;
@@ -38,15 +33,12 @@ use crate::color::{Color, DefaultColor};
 use crate::command::{Command, Instruction};
 use crate::fonts::Font;
 
-use alloc::prelude::SliceConcatExt;
-use alloc::vec::Vec;
-use embedded_hal::blocking::spi;
-use embedded_hal::digital::OutputPin;
-use embedded_hal::blocking::delay::DelayMs;
-use num;
-use num::integer::sqrt;
 use core::cmp::{max, min};
 use core::mem::transmute;
+use embedded_hal::blocking::delay::DelayMs;
+use embedded_hal::blocking::spi;
+use embedded_hal::digital::v2::OutputPin;
+use num_derive::{FromPrimitive, ToPrimitive};
 
 /// ST7735 driver to connect to TFT displays. The driver allows to draw simple shapes,
 /// and reset the display.
@@ -79,7 +71,7 @@ pub struct ST7734<SPI, PIN, DELAY> {
     /// Hardware SPI
     spi: Option<SPI>,
 
-    delay: DELAY
+    delay: DELAY,
 }
 
 /// Display orientation.
@@ -95,8 +87,8 @@ impl<SPI, PIN, DELAY> ST7734<SPI, PIN, DELAY>
 where
     SPI: spi::Write<u8>,
     PIN: OutputPin,
-    DELAY: DelayMs<u64> {
-
+    DELAY: DelayMs<u32>,
+{
     /// Creates a new driver instance that uses hardware SPI.
     pub fn new_with_spi(spi: SPI, dc: PIN, delay: DELAY) -> ST7734<SPI, PIN, DELAY> {
         let mut display = ST7734 {
@@ -105,7 +97,7 @@ where
             dc: Some(dc),
             mosi: None,
             spi: Some(spi),
-            delay
+            delay,
         };
 
         display.init();
@@ -113,14 +105,20 @@ where
     }
 
     /// Creates a new driver instance that uses software SPI using the provided pins.
-    pub fn new_with_gpio(rst: Option<PIN>, clk: PIN, dc: PIN, mosi: PIN, delay: DELAY) -> ST7734<SPI, PIN, DELAY> {
+    pub fn new_with_gpio(
+        rst: Option<PIN>,
+        clk: PIN,
+        dc: PIN,
+        mosi: PIN,
+        delay: DELAY,
+    ) -> ST7734<SPI, PIN, DELAY> {
         let mut display = ST7734 {
             rst,
             clk: Some(clk),
             dc: Some(dc),
             mosi: Some(mosi),
             spi: None,
-            delay
+            delay,
         };
 
         display.init();
@@ -131,86 +129,92 @@ where
     fn init(&mut self) {
         self.hard_reset();
 
-        let init_commands: Vec<Command> = vec![
+        let init_commands: &[Command] = &[
             Command {
                 instruction: Instruction::SWRESET,
-                delay: Some(200),
-                arguments: vec![],
+                arguments: &[0x80, 0x96],
             },
             Command {
                 instruction: Instruction::SLPOUT,
-                delay: Some(200),
-                arguments: vec![],
-            },
-            Command {
-                instruction: Instruction::COLMOD,
-                delay: None,
-                arguments: vec![0x05],
+                arguments: &[0x80, 0xff],
             },
             Command {
                 instruction: Instruction::FRMCTR1,
-                delay: None,
-                arguments: vec![0x01, 0x2C, 0x2D],
+                arguments: &[0x01, 0x2C, 0x2D],
             },
             Command {
                 instruction: Instruction::FRMCTR2,
-                delay: None,
-                arguments: vec![0x01, 0x2C, 0x2D],
+                arguments: &[0x01, 0x2C, 0x2D],
             },
             Command {
                 instruction: Instruction::FRMCTR3,
-                delay: None,
-                arguments: vec![0x01, 0x2C, 0x2D, 0x01, 0x2C, 0x2D],
+                arguments: &[0x01, 0x2C, 0x2D, 0x01, 0x2C, 0x2D],
             },
             Command {
                 instruction: Instruction::INVCTR,
-                delay: None,
-                arguments: vec![0x07],
+                arguments: &[0x07],
             },
             Command {
                 instruction: Instruction::PWCTR1,
-                delay: None,
-                arguments: vec![0xA2, 0x02, 0x84],
+                arguments: &[0xA2, 0x02, 0x84],
             },
             Command {
                 instruction: Instruction::PWCTR2,
-                delay: None,
-                arguments: vec![0xC5],
+                arguments: &[0xC5],
             },
             Command {
                 instruction: Instruction::PWCTR3,
-                delay: None,
-                arguments: vec![0x0A, 0x00],
+                arguments: &[0x0A, 0x00],
             },
             Command {
                 instruction: Instruction::PWCTR4,
-                delay: None,
-                arguments: vec![0x8A, 0x2A],
+                arguments: &[0x8A, 0x2A],
             },
             Command {
                 instruction: Instruction::PWCTR5,
-                delay: None,
-                arguments: vec![0x8A, 0xEE],
+                arguments: &[0x8A, 0xEE],
             },
             Command {
                 instruction: Instruction::VMCTR1,
-                delay: None,
-                arguments: vec![0x0E],
+                arguments: &[0x0E],
             },
             Command {
                 instruction: Instruction::INVOFF,
-                delay: None,
-                arguments: vec![],
+                arguments: &[],
             },
             Command {
                 instruction: Instruction::MADCTL,
-                delay: None,
-                arguments: vec![0x00],
+                arguments: &[0x18],
+            },
+            Command {
+                instruction: Instruction::COLMOD,
+                arguments: &[0x05],
+            },
+            Command {
+                instruction: Instruction::GMCTRP1,
+                arguments: &[
+                    0x02, 0x1c, 0x07, 0x12, 0x37, 0x32, 0x29, 0x2d, 0x29, 0x25, 0x2B, 0x39, 0x00,
+                    0x01, 0x03, 0x10,
+                ],
+            },
+            Command {
+                instruction: Instruction::GMCTRN1,
+                arguments: &[
+                    0x03, 0x1d, 0x07, 0x06, 0x2E, 0x2C, 0x29, 0x2D, 0x2E, 0x2E, 0x37, 0x3F, 0x00,
+                    0x00, 0x02, 0x10,
+                ],
+            },
+            Command {
+                instruction: Instruction::NORON,
+                arguments: &[0x80, 0x0a],
             },
             Command {
                 instruction: Instruction::DISPON,
-                delay: None,
-                arguments: vec![],
+                arguments: &[0x80, 0x64],
+            },
+            Command {
+                instruction: Instruction::MADCTL,
+                arguments: &[0xc8],
             },
         ];
 
@@ -239,7 +243,7 @@ where
             match data {
                 false => dc.set_low(),
                 true => dc.set_high(),
-            }
+            };
         }
 
         if let Some(ref mut spi) = self.spi {
@@ -250,8 +254,8 @@ where
                 if let Some(ref mut mosi) = self.mosi {
                     match value & (mask >> bit) {
                         0 => mosi.set_low(),
-                        _ => mosi.set_high()
-                    }
+                        _ => mosi.set_high(),
+                    };
                 }
                 self.pulse_clock();
             }
@@ -273,10 +277,11 @@ where
                 }
 
                 let bytes: [u8; 2] = unsafe { transmute(color.hex.to_be()) };
-                let mut byte_array = vec![bytes[0], bytes[1]];
+                let mut byte_array = [0; 1024];
 
-                for _ in 0..=repetitions {
-                    byte_array = [&byte_array[..], &bytes[..]].concat()
+                for i in 0..(repetitions as usize) {
+                    byte_array[2 * i] = bytes[0];
+                    byte_array[2 * i + 1] = bytes[1];
                 }
                 let _ = spi.write(&byte_array);
             } else {
@@ -295,8 +300,8 @@ where
     }
 
     /// Sends a list of commands to the display.
-    fn execute_commands(&mut self, commands: Vec<Command>) {
-        for cmd in &commands {
+    fn execute_commands(&mut self, commands: &[Command]) {
+        for cmd in commands {
             self.execute_command(cmd);
         }
     }
@@ -305,17 +310,9 @@ where
     fn execute_command(&mut self, cmd: &Command) {
         self.write_byte(num::ToPrimitive::to_u8(&cmd.instruction).unwrap(), false);
 
-        match cmd.delay {
-            Some(d) => {
-                if cmd.arguments.len() > 0 {
-                    self.delay.delay_ms(d);
-                }
-            }
-            None => {
-                for argument in &cmd.arguments {
-                    self.write_byte(*argument, true);
-                }
-            }
+        self.write_byte(cmd.arguments.len() as u8, true);
+        for argument in cmd.arguments {
+            self.write_byte(*argument, true);
         }
     }
 
@@ -349,8 +346,7 @@ where
     pub fn set_orientation(&mut self, orientation: &Orientation) {
         let command = Command {
             instruction: Instruction::MADCTL,
-            delay: None,
-            arguments: vec![num::ToPrimitive::to_u8(orientation).unwrap()],
+            arguments: &[num::ToPrimitive::to_u8(orientation).unwrap()],
         };
         self.execute_command(&command);
     }
@@ -471,4 +467,8 @@ where
     pub fn clear_screen(&mut self) {
         self.draw_filled_rect(0, 0, 127, 159, &Color::from_default(DefaultColor::Black));
     }
+}
+
+fn sqrt(x: u16) -> u16 {
+    x
 }

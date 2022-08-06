@@ -1,4 +1,4 @@
-use num;
+use num_derive::{FromPrimitive, ToPrimitive};
 
 /// Represents a pixel color.
 pub struct Color {

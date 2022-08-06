@@ -1,13 +1,14 @@
+use core::convert::TryInto;
+
 use crate::fonts::Font;
-use alloc::vec::Vec;
 
 /// Font displaying characters in 5x7 pixels.
 pub struct Font57 {}
 
 impl Font for Font57 {
-    fn get_char(c: char) -> Vec<u8> {
+    fn get_char(c: char) -> [u8; 5] {
         let index = LOOKUP57.iter().position(|&r| r == c).expect("Invalid char") * 5;
-        FONT57[index..=(index + 5)].to_vec()
+        FONT57[index..=(index + 5)].try_into().unwrap()
     }
 }
 
@@ -124,7 +125,7 @@ static LOOKUP57: &'static [char] = &[
     ' ', '!', '"', '#', '$', '%', '&', '\'', '(', ')', '*', '+', ',', '-', '.', '/', '0', '1', '2',
     '3', '4', '5', '6', '7', '8', '9', ':', ';', '<', '=', '>', '?', '@', 'A', 'B', 'C', 'D', 'E',
     'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X',
-    'Y', 'Z', 'Ä', 'Ö', 'Ü', '[', '\\', ']', '^', '_', '`', 'a', 'b', 'c', 'd', 'e', 'f', 'g',
-    'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
-    'ä', 'ö', 'ü', '{', '|', '}', '€', '†', '‡', '°',
+    'Y', 'Z', 'Ä', 'Ö', 'Ü', '[', '\\', ']', '^', '_', '`', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h',
+    'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', 'ä',
+    'ö', 'ü', '{', '|', '}', '€', '†', '‡', '°',
 ];

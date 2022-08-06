@@ -1,15 +1,12 @@
-use alloc::vec::Vec;
+use num_derive::{FromPrimitive, ToPrimitive};
 
 /// System function command.
-pub struct Command {
+pub struct Command<'a> {
     /// Instruction to be executed.
     pub instruction: Instruction,
 
     /// List of arguments.
-    pub arguments: Vec<u8>,
-
-    /// Delay after command is executed.
-    pub delay: Option<u64>,
+    pub arguments: &'a [u8],
 }
 
 /// ST7735 instructions.
@@ -34,6 +31,7 @@ pub enum Instruction {
     PTLAR = 0x30,
     COLMOD = 0x3A,
     MADCTL = 0x36,
+    DELAY = 0x80,
     FRMCTR1 = 0xB1,
     FRMCTR2 = 0xB2,
     FRMCTR3 = 0xB3,
