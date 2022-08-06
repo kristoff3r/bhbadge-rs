@@ -1,10 +1,13 @@
 #![no_std]
 #![no_main]
 
-use bsp::entry;
-use defmt_rtt as _;
-use embedded_hal::digital::v2::OutputPin;
-use embedded_time::fixed_point::FixedPoint;
+use bsp::{entry, hal::spi};
+
+use cortex_m::prelude::_embedded_hal_blocking_delay_DelayMs;
+use display_interface::{DataFormat, WriteOnlyDataCommand};
+use display_interface_spi::SPIInterface;
+use embedded_hal::digital::v2::{InputPin, OutputPin};
+use embedded_time::{fixed_point::FixedPoint, rate::Extensions};
 use panic_probe as _;
 
 use rp_pico as bsp;
@@ -15,6 +18,7 @@ use bsp::hal::{
     sio::Sio,
     watchdog::Watchdog,
 };
+use st7735::color::{Color, DefaultColor};
 
 #[entry]
 fn main() -> ! {
@@ -35,8 +39,6 @@ fn main() -> ! {
     .ok()
     .unwrap();
 
-    let mut delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().integer());
-
     let pins = bsp::Pins::new(
         pac.IO_BANK0,
         pac.PADS_BANK0,
@@ -46,19 +48,39 @@ fn main() -> ! {
 
     let mut led_pin = pins.led.into_push_pull_output();
 
-    // WIP
-    // let spi = spi::Spi::<_, _, 8>::new(pac.SPI0);
-    // let spi = spi.init(
-    //     &mut pac.RESETS,
-    //     clocks.peripheral_clock.freq(),
-    //     16_000_000u32.Hz(),
-    //     &embedded_hal::spi::MODE_0,
-    // );
+    let a_button = pins.gpio16.into_pull_up_input();
+    let b_button = pins.gpio17.into_pull_up_input();
+    let x_button = pins.gpio18.into_pull_up_input();
+    let y_button = pins.gpio19.into_pull_up_input();
+
+    let spi = spi::Spi::<_, _, 8>::new(pac.SPI0).init(
+        &mut pac.RESETS,
+        clocks.peripheral_clock.freq(),
+        16_000_000u32.Hz(),
+        &embedded_hal::spi::MODE_0,
+    );
+
+    // Turn on backlight
+    // let mut backlight = pins.gpio13.into_push_pull_output();
+    // backlight.set_high();
+
+    let dc = pins.gpio7.into_push_pull_output();
+    let mut display = {
+        let delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().integer());
+        st7735::ST7734::new_with_spi(spi, dc, delay)
+    };
+    // display.set_orientation(&st7735::Orientation::Landscape);
+    display.fill_screen(&Color::from_default(DefaultColor::Blue));
 
     loop {
-        led_pin.set_high().unwrap();
-        delay.delay_ms(1000);
-        led_pin.set_low().unwrap();
-        delay.delay_ms(1000);
+        if a_button.is_low().unwrap()
+            || b_button.is_low().unwrap()
+            || x_button.is_low().unwrap()
+            || y_button.is_low().unwrap()
+        {
+            led_pin.set_high().unwrap();
+        } else {
+            led_pin.set_low().unwrap();
+        }
     }
 }
