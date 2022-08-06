@@ -1,8 +1,11 @@
 #![no_std]
 #![no_main]
 
+use core::cell::Cell;
+
 use bsp::{entry, hal::spi};
 
+use cortex_m::interrupt::Mutex;
 use embedded_hal::digital::v2::{InputPin, OutputPin};
 use embedded_time::{fixed_point::FixedPoint, rate::Extensions};
 use panic_probe as _;
@@ -11,11 +14,29 @@ use rp_pico as bsp;
 
 use bsp::hal::{
     clocks::{init_clocks_and_plls, Clock},
-    pac,
+    gpio::{self, Interrupt},
+    pac::{self, interrupt},
     sio::Sio,
     watchdog::Watchdog,
 };
 use st7735::color::{Color, DefaultColor};
+
+type LedPin = gpio::Pin<gpio::bank0::Gpio25, gpio::PushPullOutput>;
+type ButtonAPin = gpio::Pin<gpio::bank0::Gpio16, gpio::PullUpInput>;
+type ButtonBPin = gpio::Pin<gpio::bank0::Gpio17, gpio::PullUpInput>;
+type ButtonXPin = gpio::Pin<gpio::bank0::Gpio18, gpio::PullUpInput>;
+type ButtonYPin = gpio::Pin<gpio::bank0::Gpio19, gpio::PullUpInput>;
+
+struct LedAndButtons {
+    led: LedPin,
+    button_a: ButtonAPin,
+    button_b: ButtonBPin,
+    button_x: ButtonXPin,
+    button_y: ButtonYPin,
+}
+
+// Used for hand-off to the interrupt handler
+static GLOBAL_PINS: Mutex<Cell<Option<LedAndButtons>>> = Mutex::new(Cell::new(None));
 
 #[entry]
 fn main() -> ! {
@@ -43,12 +64,25 @@ fn main() -> ! {
         &mut pac.RESETS,
     );
 
-    let mut led_pin = pins.led.into_push_pull_output();
+    let led_and_buttons = LedAndButtons {
+        led: pins.led.into_mode(),
+        button_a: pins.gpio16.into_mode(),
+        button_b: pins.gpio17.into_mode(),
+        button_x: pins.gpio18.into_mode(),
+        button_y: pins.gpio19.into_mode(),
+    };
 
-    let a_button = pins.gpio16.into_pull_up_input();
-    let b_button = pins.gpio17.into_pull_up_input();
-    let x_button = pins.gpio18.into_pull_up_input();
-    let y_button = pins.gpio19.into_pull_up_input();
+    led_and_buttons
+        .button_a
+        .set_interrupt_enabled(Interrupt::EdgeLow, true);
+
+    cortex_m::interrupt::free(|cs| {
+        GLOBAL_PINS.borrow(cs).set(Some(led_and_buttons));
+    });
+
+    unsafe {
+        pac::NVIC::unmask(pac::Interrupt::IO_IRQ_BANK0);
+    }
 
     let spi = spi::Spi::<_, _, 8>::new(pac.SPI0).init(
         &mut pac.RESETS,
@@ -70,14 +104,39 @@ fn main() -> ! {
     display.fill_screen(&Color::from_default(DefaultColor::Blue));
 
     loop {
-        if a_button.is_low().unwrap()
-            || b_button.is_low().unwrap()
-            || x_button.is_low().unwrap()
-            || y_button.is_low().unwrap()
+        cortex_m::asm::wfi();
+    }
+}
+
+#[interrupt]
+fn IO_IRQ_BANK0() {
+    // The `#[interrupt]` attribute covertly converts this to `&'static mut Option<LedAndButton>`
+    static mut LED_AND_BUTTONS: Option<LedAndButtons> = None;
+
+    // Lazy initialization: Steal the global button and led pins
+    if LED_AND_BUTTONS.is_none() {
+        cortex_m::interrupt::free(|cs| {
+            *LED_AND_BUTTONS = GLOBAL_PINS.borrow(cs).take();
+        });
+    }
+
+    if let Some(LedAndButtons {
+        led,
+        button_a,
+        button_b,
+        button_x,
+        button_y,
+    }) = LED_AND_BUTTONS
+    {
+        button_a.clear_interrupt(Interrupt::EdgeLow);
+
+        if button_b.is_low().unwrap_or(false)
+            || button_x.is_low().unwrap_or(false)
+            || button_y.is_low().unwrap_or(false)
         {
-            led_pin.set_high().unwrap();
+            let _ = led.set_high();
         } else {
-            led_pin.set_low().unwrap();
+            let _ = led.set_low();
         }
     }
 }
