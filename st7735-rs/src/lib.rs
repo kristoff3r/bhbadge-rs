@@ -1,3 +1,4 @@
+#![allow(dead_code, unused_must_use)]
 #![crate_type = "lib"]
 #![crate_name = "st7735"]
 

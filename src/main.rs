@@ -3,9 +3,6 @@
 
 use bsp::{entry, hal::spi};
 
-use cortex_m::prelude::_embedded_hal_blocking_delay_DelayMs;
-use display_interface::{DataFormat, WriteOnlyDataCommand};
-use display_interface_spi::SPIInterface;
 use embedded_hal::digital::v2::{InputPin, OutputPin};
 use embedded_time::{fixed_point::FixedPoint, rate::Extensions};
 use panic_probe as _;
