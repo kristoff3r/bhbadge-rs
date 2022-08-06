@@ -3,11 +3,18 @@
 
 use core::cell::Cell;
 
-use bsp::{entry, hal::spi};
+use bsp::{
+    entry,
+    hal::{pwm, spi},
+};
 
 use cortex_m::interrupt::Mutex;
-use embedded_hal::digital::v2::{InputPin, OutputPin};
+use embedded_hal::{
+    digital::v2::{InputPin, OutputPin},
+    PwmPin,
+};
 use embedded_time::{fixed_point::FixedPoint, rate::Extensions};
+use inverted_pin::InvertedPin;
 use panic_probe as _;
 
 use rp_pico as bsp;
@@ -92,14 +99,25 @@ fn main() -> ! {
     );
 
     // Turn on backlight
-    // let mut backlight = pins.gpio13.into_push_pull_output();
-    // backlight.set_high();
+    let backlight = pins.gpio13;
+    let mut pwm_slices = pwm::Slices::new(pac.PWM, &mut pac.RESETS);
+    let pwm = &mut pwm_slices.pwm6;
+    pwm.set_ph_correct();
+    pwm.set_div_int(20);
+    pwm.enable();
+    let channel = &mut pwm.channel_b;
+    channel.output_to(backlight);
+    channel.set_duty(60000);
 
+    // Initialize screen
     let dc = pins.gpio7.into_push_pull_output();
-    let mut display = {
-        let delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().integer());
-        st7735::ST7734::new_with_spi(spi, dc, delay)
-    };
+    let cs = pins.gpio21.into_push_pull_output();
+    let _reset = pins.gpio6.into_push_pull_output();
+
+    let spi = display_interface_spi::SPIInterface::new(spi, dc, InvertedPin::new(cs));
+
+    let delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().integer());
+    let mut display = st7735::ST7734::new(spi, delay);
     // display.set_orientation(&st7735::Orientation::Landscape);
     display.fill_screen(&Color::from_default(DefaultColor::Blue));
 

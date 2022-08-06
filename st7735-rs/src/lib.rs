@@ -36,9 +36,9 @@ use crate::fonts::Font;
 
 use core::cmp::{max, min};
 use core::mem::transmute;
+use display_interface::DataFormat;
 use embedded_hal::blocking::delay::DelayMs;
-use embedded_hal::blocking::spi;
-use embedded_hal::digital::v2::OutputPin;
+use num::ToPrimitive;
 use num_derive::{FromPrimitive, ToPrimitive};
 
 /// ST7735 driver to connect to TFT displays. The driver allows to draw simple shapes,
@@ -56,22 +56,8 @@ use num_derive::{FromPrimitive, ToPrimitive};
 /// display.draw_rect(30, 30, 60, 70, &Color::from_default(DefaultColor::Blue));
 /// ```
 ///
-pub struct ST7734<SPI, PIN, DELAY> {
-    /// Reset pin.
-    rst: Option<PIN>,
-
-    /// SPI clock pin.
-    clk: Option<PIN>,
-
-    /// Data/command pin.
-    dc: Option<PIN>,
-
-    /// MOSI pin.
-    mosi: Option<PIN>,
-
-    /// Hardware SPI
-    spi: Option<SPI>,
-
+pub struct ST7734<DISPLAY, DELAY> {
+    spi: DISPLAY,
     delay: DELAY,
 }
 
@@ -84,43 +70,13 @@ pub enum Orientation {
     LandScapeSwapped = 0xA0,
 }
 
-impl<SPI, PIN, DELAY> ST7734<SPI, PIN, DELAY>
+impl<DISPLAY, DELAY> ST7734<DISPLAY, DELAY>
 where
-    SPI: spi::Write<u8>,
-    PIN: OutputPin,
+    DISPLAY: display_interface::WriteOnlyDataCommand,
     DELAY: DelayMs<u32>,
 {
-    /// Creates a new driver instance that uses hardware SPI.
-    pub fn new_with_spi(spi: SPI, dc: PIN, delay: DELAY) -> ST7734<SPI, PIN, DELAY> {
-        let mut display = ST7734 {
-            rst: None,
-            clk: None,
-            dc: Some(dc),
-            mosi: None,
-            spi: Some(spi),
-            delay,
-        };
-
-        display.init();
-        display
-    }
-
-    /// Creates a new driver instance that uses software SPI using the provided pins.
-    pub fn new_with_gpio(
-        rst: Option<PIN>,
-        clk: PIN,
-        dc: PIN,
-        mosi: PIN,
-        delay: DELAY,
-    ) -> ST7734<SPI, PIN, DELAY> {
-        let mut display = ST7734 {
-            rst,
-            clk: Some(clk),
-            dc: Some(dc),
-            mosi: Some(mosi),
-            spi: None,
-            delay,
-        };
+    pub fn new(spi: DISPLAY, delay: DELAY) -> ST7734<DISPLAY, DELAY> {
+        let mut display = ST7734 { spi, delay };
 
         display.init();
         display
@@ -128,71 +84,85 @@ where
 
     /// Runs commands to initialize the display.
     fn init(&mut self) {
-        self.hard_reset();
-
         let init_commands: &[Command] = &[
             Command {
                 instruction: Instruction::SWRESET,
-                arguments: &[0x80, 0x96],
+                delay: Some(150),
+                arguments: &[],
             },
             Command {
                 instruction: Instruction::SLPOUT,
-                arguments: &[0x80, 0xff],
+                delay: Some(500),
+                arguments: &[],
             },
             Command {
                 instruction: Instruction::FRMCTR1,
+                delay: None,
                 arguments: &[0x01, 0x2C, 0x2D],
             },
             Command {
                 instruction: Instruction::FRMCTR2,
+                delay: None,
                 arguments: &[0x01, 0x2C, 0x2D],
             },
             Command {
                 instruction: Instruction::FRMCTR3,
+                delay: None,
                 arguments: &[0x01, 0x2C, 0x2D, 0x01, 0x2C, 0x2D],
             },
             Command {
                 instruction: Instruction::INVCTR,
+                delay: None,
                 arguments: &[0x07],
             },
             Command {
                 instruction: Instruction::PWCTR1,
+                delay: None,
                 arguments: &[0xA2, 0x02, 0x84],
             },
             Command {
                 instruction: Instruction::PWCTR2,
+                delay: None,
                 arguments: &[0xC5],
             },
             Command {
                 instruction: Instruction::PWCTR3,
+                delay: None,
                 arguments: &[0x0A, 0x00],
             },
             Command {
                 instruction: Instruction::PWCTR4,
+                delay: None,
                 arguments: &[0x8A, 0x2A],
             },
             Command {
                 instruction: Instruction::PWCTR5,
+                delay: None,
                 arguments: &[0x8A, 0xEE],
             },
             Command {
                 instruction: Instruction::VMCTR1,
+                delay: None,
                 arguments: &[0x0E],
             },
             Command {
                 instruction: Instruction::INVOFF,
+                delay: None,
                 arguments: &[],
             },
             Command {
                 instruction: Instruction::MADCTL,
+                delay: None,
                 arguments: &[0x18],
             },
             Command {
                 instruction: Instruction::COLMOD,
+                delay: None,
                 arguments: &[0x05],
             },
             Command {
                 instruction: Instruction::GMCTRP1,
+                delay: None,
                 arguments: &[
                     0x02, 0x1c, 0x07, 0x12, 0x37, 0x32, 0x29, 0x2d, 0x29, 0x25, 0x2B, 0x39, 0x00,
                     0x01, 0x03, 0x10,
@@ -200,162 +170,110 @@ where
             },
             Command {
                 instruction: Instruction::GMCTRN1,
+                delay: None,
                 arguments: &[
-                    0x03, 0x1d, 0x07, 0x06, 0x2E, 0x2C, 0x29, 0x2D, 0x2E, 0x2E, 0x37, 0x3F, 0x00,
+                    0x03, 0x1d, 0x07, 0x06, 0x2e, 0x2c, 0x29, 0x2d, 0x2e, 0x2e, 0x37, 0x3f, 0x00,
                     0x00, 0x02, 0x10,
                 ],
             },
             Command {
                 instruction: Instruction::NORON,
-                arguments: &[0x80, 0x0a],
+                delay: None,
+                arguments: &[0x0A],
             },
             Command {
                 instruction: Instruction::DISPON,
-                arguments: &[0x80, 0x64],
+                delay: Some(100),
+                arguments: &[],
             },
             Command {
                 instruction: Instruction::MADCTL,
-                arguments: &[0xc8],
+                delay: None,
+                arguments: &[0xC0],
             },
         ];
 
-        self.execute_commands(init_commands);
+        self.write_cmds(&init_commands);
     }
 
-    /// Pulses the clock one time.
-    fn pulse_clock(&mut self) {
-        if let Some(ref mut clk) = self.clk {
-            clk.set_high();
-            clk.set_low();
-        }
-    }
+    fn write_cmds(&mut self, cmds: &[Command]) {
+        for c in cmds {
+            self.spi
+                .send_commands(DataFormat::U8(&[c.instruction.to_u8().unwrap()]))
+                .unwrap();
+            self.spi.send_data(DataFormat::U8(c.arguments)).unwrap();
 
-    /// Resets the display using the rst pin.
-    pub fn hard_reset(&mut self) {
-        if let Some(ref mut rst) = self.rst {
-            rst.set_high();
-            rst.set_low();
-        }
-    }
-
-    /// Writes one byte to the display which can either be a command or data.
-    fn write_byte(&mut self, value: u8, data: bool) {
-        if let Some(ref mut dc) = self.dc {
-            match data {
-                false => dc.set_low(),
-                true => dc.set_high(),
-            };
-        }
-
-        if let Some(ref mut spi) = self.spi {
-            let _ = spi.write(&[value]);
-        } else {
-            let mask = 0x80;
-            for bit in 0..8 {
-                if let Some(ref mut mosi) = self.mosi {
-                    match value & (mask >> bit) {
-                        0 => mosi.set_low(),
-                        _ => mosi.set_high(),
-                    };
-                }
-                self.pulse_clock();
+            if let Some(ms) = c.delay {
+                self.delay.delay_ms(ms);
             }
         }
+    }
+
+    fn write_data(&mut self, data: &[u8]) {
+        self.spi.send_data(DataFormat::U8(data));
     }
 
     /// Writes a bulk of pixels to the display.
     fn write_bulk(&mut self, color: &Color, repetitions: u16, count: u16) {
-        if let Some(ref mut dc) = self.dc {
-            dc.set_low();
-        }
-
-        self.write_byte(num::ToPrimitive::to_u8(&Instruction::RAMWR).unwrap(), false);
+        self.write_cmds(&[Instruction::RAMWR.to_cmd()]);
 
         for _ in 0..=count {
-            if let Some(ref mut spi) = self.spi {
-                if let Some(ref mut dc) = self.dc {
-                    dc.set_high();
-                }
+            let bytes: [u8; 2] = unsafe { transmute(color.hex.to_be()) };
+            let mut byte_array = [0; 1024];
 
-                let bytes: [u8; 2] = unsafe { transmute(color.hex.to_be()) };
-                let mut byte_array = [0; 1024];
-
-                for i in 0..(repetitions as usize) {
-                    byte_array[2 * i] = bytes[0];
-                    byte_array[2 * i + 1] = bytes[1];
-                }
-                let _ = spi.write(&byte_array);
-            } else {
-                for _ in 0..=repetitions {
-                    self.write_color(color);
-                }
+            for i in 0..(repetitions as usize) {
+                byte_array[2 * i] = bytes[0];
+                byte_array[2 * i + 1] = bytes[1];
             }
+            self.write_data(&byte_array);
         }
     }
 
     /// Writes a data word to the display.
     fn write_word(&mut self, value: u16) {
         let bytes: [u8; 2] = unsafe { transmute(value.to_be()) };
-        self.write_byte(bytes[0], true);
-        self.write_byte(bytes[1], true);
-    }
-
-    /// Sends a list of commands to the display.
-    fn execute_commands(&mut self, commands: &[Command]) {
-        for cmd in commands {
-            self.execute_command(cmd);
-        }
-    }
-
-    /// Sends a single command to the display.
-    fn execute_command(&mut self, cmd: &Command) {
-        self.write_byte(num::ToPrimitive::to_u8(&cmd.instruction).unwrap(), false);
-
-        self.write_byte(cmd.arguments.len() as u8, true);
-        for argument in cmd.arguments {
-            self.write_byte(*argument, true);
-        }
+        self.write_data(&bytes);
     }
 
     /// Sets the color to be used.
     fn write_color(&mut self, color: &Color) {
         let bytes: [u8; 2] = unsafe { transmute(color.hex.to_be()) };
 
-        if let Some(ref mut spi) = self.spi {
-            if let Some(ref mut dc) = self.dc {
-                dc.set_high();
-            }
-
-            let _ = spi.write(&[bytes[0], bytes[1]]);
-        } else {
-            self.write_byte(bytes[0], true);
-            self.write_byte(bytes[1], true);
-        }
+        self.write_data(&bytes);
     }
 
     /// Sets the address window for the display.
     fn set_address_window(&mut self, x0: u16, y0: u16, x1: u16, y1: u16) {
-        self.write_byte(num::ToPrimitive::to_u8(&Instruction::CASET).unwrap(), false);
-        self.write_word(x0);
-        self.write_word(x1);
-        self.write_byte(num::ToPrimitive::to_u8(&Instruction::RASET).unwrap(), false);
-        self.write_word(y0);
-        self.write_word(y1);
+        let x0 = x0.to_be_bytes();
+        let x1 = x1.to_be_bytes();
+        let y0 = y0.to_be_bytes();
+        let y1 = y1.to_be_bytes();
+        self.write_cmds(&[Command {
+            instruction: Instruction::CASET,
+            arguments: &[x0[0], x0[1], x1[0], x1[1]],
+            delay: None,
+        }]);
+        self.write_cmds(&[Command {
+            instruction: Instruction::RASET,
+            arguments: &[y0[0], y0[1], y1[0], y1[1]],
+            delay: None,
+        }]);
     }
 
     /// Changes the display orientation.
     pub fn set_orientation(&mut self, orientation: &Orientation) {
         let command = Command {
             instruction: Instruction::MADCTL,
+            delay: None,
             arguments: &[num::ToPrimitive::to_u8(orientation).unwrap()],
         };
-        self.execute_command(&command);
+        self.write_cmds(&[command]);
     }
 
     /// Draws a single pixel with the specified `color` at the defined coordinates on the display.
     pub fn draw_pixel(&mut self, x: u16, y: u16, color: &Color) {
         self.set_address_window(x, y, x, y);
-        self.write_byte(num::ToPrimitive::to_u8(&Instruction::RAMWR).unwrap(), false);
+        self.write_cmds(&[Instruction::RAMWR.to_cmd()]);
         self.write_color(color);
     }
 

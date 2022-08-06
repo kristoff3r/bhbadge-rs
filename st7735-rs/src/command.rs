@@ -7,6 +7,9 @@ pub struct Command<'a> {
 
     /// List of arguments.
     pub arguments: &'a [u8],
+
+    /// Delay after command is executed.
+    pub delay: Option<u32>,
 }
 
 /// ST7735 instructions.
@@ -31,7 +34,6 @@ pub enum Instruction {
     PTLAR = 0x30,
     COLMOD = 0x3A,
     MADCTL = 0x36,
-    DELAY = 0x80,
     FRMCTR1 = 0xB1,
     FRMCTR2 = 0xB2,
     FRMCTR3 = 0xB3,
@@ -50,4 +52,14 @@ pub enum Instruction {
     PWCTR6 = 0xFC,
     GMCTRP1 = 0xE0,
     GMCTRN1 = 0xE1,
+}
+
+impl Instruction {
+    pub fn to_cmd(self) -> Command<'static> {
+        Command {
+            instruction: self,
+            arguments: &[],
+            delay: None,
+        }
+    }
 }
