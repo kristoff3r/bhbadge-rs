@@ -31,6 +31,9 @@
 
             # Tools for flashing
             elf2uf2-rs flip-link
+
+            # Tools for accessing the serial port (using a logic analyzer)
+            sigrok-cli
           ];
 
           shellHook = ''

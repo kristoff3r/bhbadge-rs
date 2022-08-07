@@ -5,7 +5,7 @@ use core::cell::Cell;
 
 use bsp::{
     entry,
-    hal::{pwm, spi},
+    hal::{pwm, spi, uart},
 };
 
 use cortex_m::interrupt::Mutex;
@@ -114,15 +114,35 @@ fn main() -> ! {
     let cs = pins.gpio21.into_push_pull_output();
     let _reset = pins.gpio6.into_push_pull_output();
 
+    let uart_pins = (
+        // UART TX (characters sent from RP2040) on pin 1 (GPIO0)
+        pins.gpio8.into_mode::<gpio::FunctionUart>(),
+        // UART RX (characters received by RP2040) on pin 2 (GPIO1)
+        pins.gpio9.into_mode::<gpio::FunctionUart>(),
+    );
+
+    let mut uart = uart::UartPeripheral::new(pac.UART1, uart_pins, &mut pac.RESETS)
+        .enable(
+            uart::common_configs::_115200_8_N_1,
+            clocks.peripheral_clock.freq(),
+        )
+        .unwrap();
+
+    defmt_serial::defmt_serial(uart);
+
     let spi = display_interface_spi::SPIInterface::new(spi, dc, InvertedPin::new(cs));
 
-    let delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().integer());
-    let mut display = st7735::ST7734::new(spi, delay);
-    // display.set_orientation(&st7735::Orientation::Landscape);
-    display.fill_screen(&Color::from_default(DefaultColor::Blue));
+    let mut delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().integer());
+    // let mut display = st7735::ST7734::new(spi, delay);
+    // // display.set_orientation(&st7735::Orientation::Landscape);
+    // display.fill_screen(&Color::from_default(DefaultColor::Blue));
 
+    let mut n = 0u16;
     loop {
-        cortex_m::asm::wfi();
+        defmt::info!("Hello from defmt! {}", n);
+        n = n.wrapping_add(1);
+        // uart.write_full_blocking(b"UART example\r\n");
+        delay.delay_ms(1000);
     }
 }
 
