@@ -15,7 +15,7 @@ use embedded_hal::{digital::v2::OutputPin, PwmPin};
 use embedded_time::{fixed_point::FixedPoint, rate::Extensions};
 use panic_probe as _;
 
-use rp_pico as bsp;
+use bhboard as bsp;
 
 use bsp::hal::{
     clocks::{init_clocks_and_plls, Clock},
@@ -152,7 +152,7 @@ fn main() -> ! {
     let sio = Sio::new(pac.SIO);
 
     let clocks = init_clocks_and_plls(
-        rp_pico::XOSC_CRYSTAL_FREQ,
+        bsp::XOSC_CRYSTAL_FREQ,
         pac.XOSC,
         pac.CLOCKS,
         pac.PLL_SYS,
