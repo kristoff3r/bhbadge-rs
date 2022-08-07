@@ -2,10 +2,10 @@
 
 set -eu -o pipefail
 
-sleep 2
+DEFMT_LOG=debug cargo build
+
 udisksctl mount -b /dev/disk/by-label/RPI-RP2
 
-DEFMT_LOG=debug cargo build
 sudo echo sudo successful
 DEFMT_LOG=debug cargo run
 

@@ -5,7 +5,7 @@ use bsp::{
     entry,
     hal::{
         clocks::ClocksManager,
-        gpio::{Pin, PushPullOutput},
+        gpio::{FunctionSpi, Pin, PushPullOutput},
         pwm, spi, uart,
     },
 };
@@ -49,38 +49,6 @@ const INIT_SEQUENCE: &[&[u8]] = &[
     b"\x36\x01\xC0", // _MADCTL Default rotation plus BGR encoding;
 ];
 
-fn spi_write<SPI>(
-    delay: &mut Delay,
-    spi: &mut SPI,
-    cs: &mut Pin<gpio::bank0::Gpio21, PushPullOutput>,
-    dc: &mut Pin<gpio::bank0::Gpio7, PushPullOutput>,
-    cmd: u8,
-    data: &[u8],
-) where
-    SPI: embedded_hal::blocking::spi::Write<u8>,
-    SPI::Error: core::fmt::Debug,
-{
-    // Start transaction
-    cs.set_high().unwrap();
-
-    // Send command
-    dc.set_low().unwrap();
-    spi.write(&[cmd]).unwrap();
-
-    // Toggle cs in case chip latches on that
-    cs.set_high().unwrap();
-    delay.delay_us(1);
-    cs.set_low().unwrap();
-    delay.delay_us(1);
-
-    // Send command
-    dc.set_high().unwrap();
-    spi.write(data).unwrap();
-
-    // Start transaction
-    cs.set_low().unwrap();
-}
-
 fn init_uart(
     clocks: &ClocksManager,
     uart: pac::UART1,
@@ -100,48 +68,81 @@ fn init_uart(
     defmt::info!("defmt initialized");
 }
 
-fn init_display<SPI>(
-    delay: &mut Delay,
-    mut spi: SPI,
-    mut cs: Pin<gpio::bank0::Gpio21, PushPullOutput>,
-    mut dc: Pin<gpio::bank0::Gpio7, PushPullOutput>,
-    mut reset: Pin<gpio::bank0::Gpio6, PushPullOutput>,
-) where
+struct Spi<SPI> {
+    spi: SPI,
+    cs: Pin<gpio::bank0::Gpio21, PushPullOutput>,
+    dc: Pin<gpio::bank0::Gpio7, PushPullOutput>,
+    reset: Pin<gpio::bank0::Gpio6, PushPullOutput>,
+    sck: bsp::Gp22Spi0Sck,
+    copi: bsp::Gp23Spi0Tx,
+}
+
+impl<SPI> Spi<SPI>
+where
     SPI: embedded_hal::blocking::spi::Write<u8>,
     SPI::Error: core::fmt::Debug,
 {
-    delay.delay_ms(1);
-    reset.set_low().unwrap();
-    delay.delay_ms(1);
-    reset.set_high().unwrap();
+    fn init(&mut self, delay: &mut Delay) {
+        // Hard reset
+        self.cs.set_low().unwrap();
+        self.reset.set_high().unwrap();
+        delay.delay_ms(50);
+        self.reset.set_low().unwrap();
+        delay.delay_ms(50);
+        self.reset.set_high().unwrap();
+        delay.delay_ms(150);
+        self.cs.set_high().unwrap();
 
-    for bytes in INIT_SEQUENCE {
-        let cmd = bytes[0];
-        let data_size = bytes[1];
-        let delay_byte = data_size & 0x80;
-        let data_size = data_size & 0x7f;
+        for bytes in INIT_SEQUENCE {
+            let cmd = bytes[0];
+            let data_size = bytes[1];
+            let delay_byte = data_size & 0x80;
+            let data_size = data_size & 0x7f;
 
-        let data = &bytes[2..2 + data_size as usize];
+            let data = &bytes[2..2 + data_size as usize];
 
-        spi_write(delay, &mut spi, &mut cs, &mut dc, cmd, data);
+            defmt::debug!("Sending spi command {:x} with {:x}", cmd, data);
 
-        let mut delay_len_ms = 10;
-        if delay_byte > 0 {
-            delay_len_ms = *bytes.last().unwrap() as u32;
-            if delay_len_ms == 255 {
-                delay_len_ms = 500;
+            self.write(delay, cmd, data);
+
+            let mut delay_len_ms = 10;
+            if delay_byte > 0 {
+                delay_len_ms = *bytes.last().unwrap() as u32;
+                if delay_len_ms == 255 {
+                    delay_len_ms = 500;
+                }
             }
-        }
 
-        delay.delay_ms(delay_len_ms);
+            defmt::debug!("Delaying {} ms", delay_len_ms);
+            delay.delay_ms(delay_len_ms);
+        }
     }
 
-    spi_write(delay, &mut spi, &mut cs, &mut dc, 0x2a, b"\x00\x10\x00\x20");
-    delay.delay_ms(1);
-    spi_write(delay, &mut spi, &mut cs, &mut dc, 0x2b, b"\x00\x10\x00\x20");
-    delay.delay_ms(1);
-    let buffer = [0x80; 17 * 17];
-    spi_write(delay, &mut spi, &mut cs, &mut dc, 0x2c, &buffer[..]);
+    fn write(&mut self, delay: &mut Delay, cmd: u8, data: &[u8])
+    where
+        SPI: embedded_hal::blocking::spi::Write<u8>,
+        SPI::Error: core::fmt::Debug,
+    {
+        // Start transaction
+        self.cs.set_low().unwrap();
+
+        // Send command
+        self.dc.set_low().unwrap();
+        self.spi.write(&[cmd]).unwrap();
+
+        // Toggle cs in case chip latches on that
+        self.cs.set_high().unwrap();
+        delay.delay_us(1);
+        self.cs.set_low().unwrap();
+        delay.delay_us(1);
+
+        // Send command
+        self.dc.set_high().unwrap();
+        self.spi.write(data).unwrap();
+
+        // Start transaction
+        self.cs.set_high().unwrap();
+    }
 }
 
 #[entry]
@@ -201,23 +202,29 @@ fn main() -> ! {
     );
 
     // Initialize screen
-    let mut dc = pins.gpio7.into_push_pull_output();
-    let mut cs = pins.gpio21.into_push_pull_output();
-    let mut reset = pins.gpio6.into_push_pull_output();
 
-    dc.set_high().unwrap();
-    cs.set_low().unwrap();
-    reset.set_high().unwrap();
+    let mut spi = Spi {
+        spi,
+        dc: pins.gpio7.into_mode(),
+        cs: pins.gpio21.into_mode(),
+        reset: pins.gpio6.into_mode(),
+        sck: pins.gpio22.into_mode(),
+        copi: pins.gpio23.into_mode(),
+    };
 
-    init_display(&mut delay, spi, cs, dc, reset);
+    spi.init(&mut delay);
 
-    defmt::info!("display inited");
-
-    let mut n = 0u16;
+    let mut n = 0u8;
     loop {
         defmt::info!("Hello from defmt! {}", n);
         n = n.wrapping_add(1);
-        // uart.write_full_blocking(b"UART example\r\n");
-        delay.delay_ms(1000);
+
+        spi.write(&mut delay, 0x2a, b"\x00\x10\x00\x20");
+        delay.delay_ms(10);
+        spi.write(&mut delay, 0x2b, b"\x00\x10\x00\x20");
+        delay.delay_ms(10);
+        let buffer = [n; 2 * 17 * 17];
+        spi.write(&mut delay, 0x2c, &buffer[..]);
+        delay.delay_ms(10);
     }
 }
