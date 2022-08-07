@@ -9,11 +9,11 @@ pub struct Command<'a> {
     pub arguments: &'a [u8],
 
     /// Delay after command is executed.
-    pub delay: Option<u32>,
+    pub delay_ms: Option<u32>,
 }
 
 /// ST7735 instructions.
-#[derive(FromPrimitive, ToPrimitive)]
+#[derive(Copy, Clone, Debug, FromPrimitive, ToPrimitive)]
 pub enum Instruction {
     NOP = 0x00,
     SWRESET = 0x01,
@@ -52,14 +52,4 @@ pub enum Instruction {
     PWCTR6 = 0xFC,
     GMCTRP1 = 0xE0,
     GMCTRN1 = 0xE1,
-}
-
-impl Instruction {
-    pub fn to_cmd(self) -> Command<'static> {
-        Command {
-            instruction: self,
-            arguments: &[],
-            delay: None,
-        }
-    }
 }

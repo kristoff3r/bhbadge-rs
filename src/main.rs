@@ -7,6 +7,7 @@ use bsp::{
 };
 
 use cortex_m::delay::Delay;
+use display_interface::{DataFormat, WriteOnlyDataCommand};
 use embedded_hal::{digital::v2::OutputPin, PwmPin};
 use embedded_time::{fixed_point::FixedPoint, rate::Extensions};
 use panic_probe as _;
@@ -19,6 +20,7 @@ use bsp::hal::{
     sio::Sio,
     watchdog::Watchdog,
 };
+use st7735::color::Color;
 
 const INIT_SEQUENCE: &[&[u8]] = &[
     b"\x01\x80\x96",                     // SWRESET and Delay 150ms
@@ -65,10 +67,10 @@ fn init_uart(
 }
 
 struct Display<SPI> {
-    spi: SPI,
-    cs: bsp::DisplaySpiCs,
-    dc: bsp::DisplaySpiDc,
-    reset: bsp::DisplayReset,
+    display: st7735::ST7734<
+        display_interface_spi::SPIInterface<SPI, bsp::DisplaySpiDc, bsp::DisplaySpiCs>,
+    >,
+    _reset: bsp::DisplayReset,
     _sck: bsp::DisplaySpiSck,
     _copi: bsp::DisplaySpiCopi,
 }
@@ -78,66 +80,33 @@ where
     SPI: embedded_hal::blocking::spi::Write<u8>,
     SPI::Error: core::fmt::Debug,
 {
-    fn init(&mut self, delay: &mut Delay) {
+    fn new(
+        delay: &mut Delay,
+        spi: SPI,
+        mut cs: bsp::DisplaySpiCs,
+        dc: bsp::DisplaySpiDc,
+        mut reset: bsp::DisplayReset,
+        sck: bsp::DisplaySpiSck,
+        copi: bsp::DisplaySpiCopi,
+    ) -> Self {
         // Hard reset
-        self.cs.set_low().unwrap();
-        self.reset.set_high().unwrap();
+        cs.set_low().unwrap();
+        reset.set_low().unwrap();
         delay.delay_ms(50);
-        self.reset.set_low().unwrap();
-        delay.delay_ms(50);
-        self.reset.set_high().unwrap();
+        reset.set_high().unwrap();
         delay.delay_ms(150);
-        self.cs.set_high().unwrap();
+        cs.set_high().unwrap();
 
-        for bytes in INIT_SEQUENCE {
-            let cmd = bytes[0];
-            let data_size = bytes[1];
-            let delay_byte = data_size & 0x80;
-            let data_size = data_size & 0x7f;
+        let mut display =
+            st7735::ST7734::new(display_interface_spi::SPIInterface::new(spi, dc, cs), delay);
+        display.clear_screen();
 
-            let data = &bytes[2..2 + data_size as usize];
-
-            defmt::debug!("Sending spi command {:x} with {:x}", cmd, data);
-
-            self.write(delay, cmd, data);
-
-            let mut delay_len_ms = 10;
-            if delay_byte > 0 {
-                delay_len_ms = *bytes.last().unwrap() as u32;
-                if delay_len_ms == 255 {
-                    delay_len_ms = 500;
-                }
-            }
-
-            defmt::debug!("Delaying {} ms", delay_len_ms);
-            delay.delay_ms(delay_len_ms);
+        Self {
+            display,
+            _reset: reset,
+            _sck: sck,
+            _copi: copi,
         }
-    }
-
-    fn write(&mut self, delay: &mut Delay, cmd: u8, data: &[u8])
-    where
-        SPI: embedded_hal::blocking::spi::Write<u8>,
-        SPI::Error: core::fmt::Debug,
-    {
-        // Start transaction
-        self.cs.set_low().unwrap();
-
-        // Send command
-        self.dc.set_low().unwrap();
-        self.spi.write(&[cmd]).unwrap();
-
-        // Toggle cs in case chip latches on that
-        self.cs.set_high().unwrap();
-        delay.delay_us(1);
-        self.cs.set_low().unwrap();
-        delay.delay_us(1);
-
-        // Send command
-        self.dc.set_high().unwrap();
-        self.spi.write(data).unwrap();
-
-        // Start transaction
-        self.cs.set_high().unwrap();
     }
 }
 
@@ -197,28 +166,23 @@ fn main() -> ! {
         &embedded_hal::spi::MODE_0,
     );
 
-    let mut spi = Display {
+    let mut display = Display::new(
+        &mut delay,
         spi,
-        dc: pins.display_spi_dc.into_mode(),
-        cs: pins.display_spi_cs.into_mode(),
-        reset: pins.display_reset.into_mode(),
-        _sck: pins.display_spi_sck.into_mode(),
-        _copi: pins.display_spi_copi.into_mode(),
-    };
+        pins.display_spi_cs.into_mode(),
+        pins.display_spi_dc.into_mode(),
+        pins.display_reset.into_mode(),
+        pins.display_spi_sck.into_mode(),
+        pins.display_spi_copi.into_mode(),
+    );
 
-    spi.init(&mut delay);
-
-    let mut n = 0u8;
+    let mut n = 0u16;
     loop {
-        defmt::info!("Hello from defmt! {}", n);
         n = n.wrapping_add(1);
 
-        spi.write(&mut delay, 0x2a, b"\x00\x10\x00\x20");
-        delay.delay_ms(10);
-        spi.write(&mut delay, 0x2b, b"\x00\x10\x00\x20");
-        delay.delay_ms(10);
-        let buffer = [n; 2 * 17 * 17];
-        spi.write(&mut delay, 0x2c, &buffer[..]);
+        display
+            .display
+            .draw_filled_circle(50, 50, 25, &Color::from_hex(n));
         delay.delay_ms(10);
     }
 }
