@@ -64,7 +64,7 @@ fn init_uart(
     defmt::info!("defmt initialized");
 }
 
-struct Spi<SPI> {
+struct Display<SPI> {
     spi: SPI,
     cs: bsp::DisplaySpiCs,
     dc: bsp::DisplaySpiDc,
@@ -73,7 +73,7 @@ struct Spi<SPI> {
     _copi: bsp::DisplaySpiCopi,
 }
 
-impl<SPI> Spi<SPI>
+impl<SPI> Display<SPI>
 where
     SPI: embedded_hal::blocking::spi::Write<u8>,
     SPI::Error: core::fmt::Debug,
@@ -197,7 +197,7 @@ fn main() -> ! {
         &embedded_hal::spi::MODE_0,
     );
 
-    let mut spi = Spi {
+    let mut spi = Display {
         spi,
         dc: pins.display_spi_dc.into_mode(),
         cs: pins.display_spi_cs.into_mode(),
