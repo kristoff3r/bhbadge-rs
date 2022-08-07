@@ -162,7 +162,7 @@ fn main() -> ! {
     let spi = spi::Spi::<_, _, 8>::new(pac.SPI0).init(
         &mut pac.RESETS,
         clocks.peripheral_clock.freq(),
-        24_000_000u32.Hz(),
+        40_000_000u32.Hz(),
         &embedded_hal::spi::MODE_0,
     );
 
@@ -176,13 +176,12 @@ fn main() -> ! {
         pins.display_spi_copi.into_mode(),
     );
 
-    let mut n = 0u16;
+    let blue = Color::from_rgb(0, 0, 0x1f);
     loop {
-        n = n.wrapping_add(1);
-
-        display
-            .display
-            .draw_filled_circle(50, 50, 25, &Color::from_hex(n));
-        delay.delay_ms(10);
+        for y in 40..100 {
+            display.display.clear_screen();
+            display.display.draw_filled_circle(50, y, 25, &blue);
+            delay.delay_ms(50);
+        }
     }
 }

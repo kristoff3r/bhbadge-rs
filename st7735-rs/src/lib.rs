@@ -1,4 +1,3 @@
-#![allow(dead_code, unused_must_use)]
 #![crate_type = "lib"]
 #![crate_name = "st7735"]
 
@@ -211,7 +210,7 @@ where
     }
 
     fn write_data(&mut self, data: &[u8]) {
-        self.spi.send_data(DataFormat::U8(data));
+        let _ = self.spi.send_data(DataFormat::U8(data));
     }
 
     /// Writes a bulk of pixels to the display.
@@ -228,12 +227,6 @@ where
             }
             self.write_data(&byte_array[..repetitions as usize * 2]);
         }
-    }
-
-    /// Writes a data word to the display.
-    fn write_word(&mut self, value: u16) {
-        let bytes: [u8; 2] = unsafe { transmute(value.to_be()) };
-        self.write_data(&bytes);
     }
 
     /// Sets the color to be used.
@@ -372,7 +365,7 @@ where
 
     /// Fills the entire screen black.
     pub fn clear_screen(&mut self) {
-        self.draw_filled_rect(0, 0, 127, 159, &Color::from_default(DefaultColor::Black));
+        self.fill_screen(&Color::from_default(DefaultColor::Black));
     }
 }
 
@@ -385,8 +378,8 @@ pub fn sqrt(s: u16) -> u8 {
         return s as u8;
     }
 
-    let n = (ceil_log2(s) + 1) / 2;
-    let mut r = (1 << (n - 1)) + (s >> (n + 1));
+    let n: u8 = (ceil_log2(s) + 1) / 2;
+    let mut r: u16 = (1 << (n - 1)) + (s >> (n + 1));
     loop {
         if r * r <= s {
             match (r + 1).checked_mul(r + 1) {
