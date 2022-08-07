@@ -3,11 +3,7 @@
 
 use bsp::{
     entry,
-    hal::{
-        clocks::ClocksManager,
-        gpio::{FunctionSpi, Pin, PushPullOutput},
-        pwm, spi, uart,
-    },
+    hal::{clocks::ClocksManager, gpio::Pin, pwm, spi, uart},
 };
 
 use cortex_m::delay::Delay;
@@ -70,11 +66,11 @@ fn init_uart(
 
 struct Spi<SPI> {
     spi: SPI,
-    cs: Pin<gpio::bank0::Gpio21, PushPullOutput>,
-    dc: Pin<gpio::bank0::Gpio7, PushPullOutput>,
-    reset: Pin<gpio::bank0::Gpio6, PushPullOutput>,
-    sck: bsp::Gp22Spi0Sck,
-    copi: bsp::Gp23Spi0Tx,
+    cs: bsp::DisplaySpiCs,
+    dc: bsp::DisplaySpiDc,
+    reset: bsp::DisplayReset,
+    _sck: bsp::DisplaySpiSck,
+    _copi: bsp::DisplaySpiCopi,
 }
 
 impl<SPI> Spi<SPI>
@@ -175,14 +171,14 @@ fn main() -> ! {
         &clocks,
         pac.UART1,
         &mut pac.RESETS,
-        pins.gpio8.into_mode(),
-        pins.gpio9.into_mode(),
+        pins.tx2.into_mode(),
+        pins.rx2.into_mode(),
     );
 
     let mut delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().integer());
 
     // Turn on backlight
-    let backlight = pins.gpio13;
+    let backlight = pins.display_backlight_pwm;
     let mut pwm_slices = pwm::Slices::new(pac.PWM, &mut pac.RESETS);
     let pwm = &mut pwm_slices.pwm6;
     pwm.set_ph_correct();
@@ -201,15 +197,13 @@ fn main() -> ! {
         &embedded_hal::spi::MODE_0,
     );
 
-    // Initialize screen
-
     let mut spi = Spi {
         spi,
-        dc: pins.gpio7.into_mode(),
-        cs: pins.gpio21.into_mode(),
-        reset: pins.gpio6.into_mode(),
-        sck: pins.gpio22.into_mode(),
-        copi: pins.gpio23.into_mode(),
+        dc: pins.display_spi_dc.into_mode(),
+        cs: pins.display_spi_cs.into_mode(),
+        reset: pins.display_reset.into_mode(),
+        _sck: pins.display_spi_sck.into_mode(),
+        _copi: pins.display_spi_copi.into_mode(),
     };
 
     spi.init(&mut delay);
