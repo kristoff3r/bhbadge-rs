@@ -3,12 +3,13 @@ use core::convert::TryInto;
 use crate::fonts::Font;
 
 /// Font displaying characters in 5x7 pixels.
-pub struct Font57 {}
+#[derive(Copy, Clone)]
+pub struct Font57;
 
 impl Font for Font57 {
     fn get_char(c: char) -> [u8; 5] {
         let index = LOOKUP57.iter().position(|&r| r == c).expect("Invalid char") * 5;
-        FONT57[index..=(index + 5)].try_into().unwrap()
+        FONT57[index..(index + 5)].try_into().unwrap()
     }
 }
 

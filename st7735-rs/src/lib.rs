@@ -1,5 +1,4 @@
-#![crate_type = "lib"]
-#![crate_name = "st7735"]
+#![no_std]
 
 //! This crate provides a ST7735 driver to connect to TFT displays.
 //!
@@ -12,16 +11,7 @@
 //! * Rectangles (filled and border only)
 //! * Circles (filled and border only)
 //! * Lines (horizontal, vertical, and diagonal)
-//! * Text (characters)
-//!
-//! # Examples
-//!
-//! ```
-//! let mut display = ST7734::new_with_spi("/dev/spidev0.0", 25);
-//! display.set_orientation(&Orientation::Portrait);
-//! display.draw_rect(30, 30, 60, 70, &Color::from_default(DefaultColor::Blue));
-//! ```
-#![no_std]
+//! * Text (characters, strings)
 
 pub mod color;
 pub mod command;
@@ -32,7 +22,6 @@ use crate::command::{Command, Instruction};
 use crate::fonts::Font;
 
 use core::cmp::{max, min};
-use core::mem::transmute;
 use display_interface::DataFormat;
 use embedded_hal::blocking::delay::DelayMs;
 use num::ToPrimitive;
@@ -40,20 +29,7 @@ use num_derive::{FromPrimitive, ToPrimitive};
 
 /// ST7735 driver to connect to TFT displays. The driver allows to draw simple shapes,
 /// and reset the display.
-///
-/// Currently, there is support for using hardware SPI as well as software SPI to
-/// communicate to the display. Note that using hardware SPI is much faster and
-/// recommended to be used if supported by the connecting device.
-///
-/// # Examples
-///
-/// ```
-/// let mut display = ST7734::new_with_spi("/dev/spidev0.0", 25);
-/// display.set_orientation(&Orientation::Portrait);
-/// display.draw_rect(30, 30, 60, 70, &Color::from_default(DefaultColor::Blue));
-/// ```
-///
-pub struct ST7734<DISPLAY> {
+pub struct ST7735<DISPLAY, const ROWSTART: u16, const COLSTART: u16> {
     spi: DISPLAY,
 }
 
@@ -66,7 +42,7 @@ pub enum Orientation {
     LandScapeSwapped = 0xA0,
 }
 
-impl<DISPLAY> ST7734<DISPLAY>
+impl<DISPLAY, const ROWSTART: u16, const COLSTART: u16> ST7735<DISPLAY, ROWSTART, COLSTART>
 where
     DISPLAY: display_interface::WriteOnlyDataCommand,
 {
@@ -74,7 +50,7 @@ where
     where
         DELAY: DelayMs<u32>,
     {
-        let mut display = ST7734 { spi };
+        let mut display = ST7735 { spi };
 
         display.init(delay);
         display
@@ -218,7 +194,7 @@ where
         self.write_cmd(Instruction::RAMWR, &[]);
 
         for _ in 0..=count {
-            let bytes: [u8; 2] = unsafe { transmute(color.hex.to_be()) };
+            let bytes: [u8; 2] = color.hex.to_be_bytes();
             let mut byte_array = [0; 1024];
 
             for i in 0..(repetitions as usize) {
@@ -231,17 +207,17 @@ where
 
     /// Sets the color to be used.
     fn write_color(&mut self, color: &Color) {
-        let bytes: [u8; 2] = unsafe { transmute(color.hex.to_be()) };
+        let bytes: [u8; 2] = color.hex.to_be_bytes();
 
         self.write_data(&bytes);
     }
 
     /// Sets the address window for the display.
     fn set_address_window(&mut self, x0: u16, y0: u16, x1: u16, y1: u16) {
-        let x0 = x0.to_be_bytes();
-        let x1 = x1.to_be_bytes();
-        let y0 = y0.to_be_bytes();
-        let y1 = y1.to_be_bytes();
+        let x0 = (x0 + COLSTART).to_be_bytes();
+        let x1 = (x1 + COLSTART).to_be_bytes();
+        let y0 = (y0 + ROWSTART).to_be_bytes();
+        let y1 = (y1 + ROWSTART).to_be_bytes();
         self.write_cmd(Instruction::CASET, &[x0[0], x0[1], x1[0], x1[1]]);
         self.write_cmd(Instruction::RASET, &[y0[0], y0[1], y1[0], y1[1]]);
     }
@@ -352,9 +328,15 @@ where
                 let bit = character_data[col] & (mask << row);
 
                 if bit != 0 {
-                    self.draw_pixel(x - (col as u16), y - (row as u16), color);
+                    self.draw_pixel(x + (col as u16), y + (row as u16), color);
                 }
             }
+        }
+    }
+
+    pub fn draw_string<F: Font>(&mut self, s: &str, x: u16, y: u16, color: &Color, _font: F) {
+        for (i, c) in s.chars().enumerate() {
+            self.draw_character(c, x + 5 * i as u16, y, color, _font);
         }
     }
 

@@ -7,7 +7,6 @@ use bsp::{
 };
 
 use cortex_m::delay::Delay;
-use display_interface::{DataFormat, WriteOnlyDataCommand};
 use embedded_hal::{digital::v2::OutputPin, PwmPin};
 use embedded_time::{fixed_point::FixedPoint, rate::Extensions};
 use panic_probe as _;
@@ -20,32 +19,10 @@ use bsp::hal::{
     sio::Sio,
     watchdog::Watchdog,
 };
-use st7735::color::Color;
-
-const INIT_SEQUENCE: &[&[u8]] = &[
-    b"\x01\x80\x96",                     // SWRESET and Delay 150ms
-    b"\x11\x80\xff",                     // SLPOUT and Delay
-    b"\xb1\x03\x01\x2C\x2D",             // _FRMCTR1
-    b"\xb2\x03\x01\x2C\x2D",             // _FRMCTR2
-    b"\xb3\x06\x01\x2C\x2D\x01\x2C\x2D", // _FRMCTR3
-    b"\xb4\x01\x07",                     // _INVCTR line inversion
-    b"\xc0\x03\xa2\x02\x84",             // _PWCTR1 GVDD = 4.7V, 1.0uA
-    b"\xc1\x01\xc5",                     // _PWCTR2 VGH=14.7V, VGL=-7.35V
-    b"\xc2\x02\x0a\x00",                 // _PWCTR3 Opamp current small, Boost frequency
-    b"\xc3\x02\x8a\x2a",
-    b"\xc4\x02\x8a\xee",
-    b"\xc5\x01\x0e", // _VMCTR1 VCOMH = 4V, VOML = -1.1V
-    b"\x20\x00",     // _INVOFF
-    b"\x36\x01\x18", // _MADCTL bottom to top refresh
-    // 1 clk cycle nonoverlap, 2 cycle gate rise, 3 sycle osc equalie,
-    // fix on VTL
-    b"\x3a\x01\x05", // COLMOD - 16bit color
-    b"\xe0\x10\x02\x1c\x07\x12\x37\x32\x29\x2d\x29\x25\x2B\x39\x00\x01\x03\x10", // _GMCTRP1 Gamma
-    b"\xe1\x10\x03\x1d\x07\x06\x2E\x2C\x29\x2D\x2E\x2E\x37\x3F\x00\x00\x02\x10", // _GMCTRN1
-    b"\x13\x80\x0a", // _NORON
-    b"\x29\x80\x64", // _DISPON
-    b"\x36\x01\xC0", // _MADCTL Default rotation plus BGR encoding;
-];
+use st7735::{
+    color::{Color, DefaultColor},
+    fonts::font57::Font57,
+};
 
 fn init_uart(
     clocks: &ClocksManager,
@@ -67,8 +44,10 @@ fn init_uart(
 }
 
 struct Display<SPI> {
-    display: st7735::ST7734<
+    display: st7735::ST7735<
         display_interface_spi::SPIInterface<SPI, bsp::DisplaySpiDc, bsp::DisplaySpiCs>,
+        1,
+        2,
     >,
     _reset: bsp::DisplayReset,
     _sck: bsp::DisplaySpiSck,
@@ -98,7 +77,7 @@ where
         cs.set_high().unwrap();
 
         let mut display =
-            st7735::ST7734::new(display_interface_spi::SPIInterface::new(spi, dc, cs), delay);
+            st7735::ST7735::new(display_interface_spi::SPIInterface::new(spi, dc, cs), delay);
         display.clear_screen();
 
         Self {
@@ -176,12 +155,19 @@ fn main() -> ! {
         pins.display_spi_copi.into_mode(),
     );
 
-    let blue = Color::from_rgb(0, 0, 0x1f);
+    let mut n = 0u16;
     loop {
-        for y in 40..100 {
-            display.display.clear_screen();
-            display.display.draw_filled_circle(50, y, 25, &blue);
-            delay.delay_ms(50);
-        }
+        display.display.clear_screen();
+        n = n.wrapping_add(1);
+
+        display.display.draw_string(
+            "YOLOOOO",
+            n,
+            10,
+            &Color::from_default(DefaultColor::Blue),
+            Font57,
+        );
+
+        delay.delay_ms(80);
     }
 }
