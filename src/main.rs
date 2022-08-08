@@ -1,13 +1,13 @@
 #![no_std]
 #![no_main]
 
-use bsp::{
-    entry,
-    hal::{clocks::ClocksManager, gpio::Pin, pwm, spi, uart},
-};
+use core::cell::Cell;
 
-use cortex_m::delay::Delay;
-use embedded_hal::{digital::v2::OutputPin, PwmPin};
+use cortex_m::{delay::Delay, interrupt::Mutex};
+use embedded_hal::{
+    digital::v2::{InputPin, OutputPin},
+    PwmPin,
+};
 use embedded_time::{fixed_point::FixedPoint, rate::Extensions};
 use panic_probe as _;
 
@@ -15,9 +15,20 @@ use bhboard as bsp;
 
 use bsp::hal::{
     clocks::{init_clocks_and_plls, Clock},
-    gpio, pac,
+    gpio::{self, Interrupt},
+    pac::{self, interrupt},
     sio::Sio,
     watchdog::Watchdog,
+};
+use bsp::{
+    entry,
+    hal::{
+        clocks::ClocksManager,
+        gpio::Pin,
+        multicore::{Multicore, Stack},
+        pwm, spi, uart,
+    },
+    ButtonA, ButtonB, ButtonX, ButtonY, Led,
 };
 use st7735::{
     color::{Color, DefaultColor},
@@ -89,12 +100,33 @@ where
     }
 }
 
+struct LedAndButtons {
+    led: Led,
+    button_a: ButtonA,
+    button_b: ButtonB,
+    button_x: ButtonX,
+    button_y: ButtonY,
+}
+
+// Used for hand-off to the interrupt handler
+static GLOBAL_PINS: Mutex<Cell<Option<LedAndButtons>>> = Mutex::new(Cell::new(None));
+
+static mut CORE1_STACK: Stack<4096> = Stack::new();
+fn core1_task() -> ! {
+    loop {}
+}
+
 #[entry]
 fn main() -> ! {
     let mut pac = pac::Peripherals::take().unwrap();
     let core = pac::CorePeripherals::take().unwrap();
     let mut watchdog = Watchdog::new(pac.WATCHDOG);
-    let sio = Sio::new(pac.SIO);
+    let mut sio = Sio::new(pac.SIO);
+
+    let mut mc = Multicore::new(&mut pac.PSM, &mut pac.PPB, &mut sio.fifo);
+    let cores = mc.cores();
+    let core1 = &mut cores[1];
+    let _test = core1.spawn(unsafe { &mut CORE1_STACK.mem }, core1_task);
 
     let clocks = init_clocks_and_plls(
         bsp::XOSC_CRYSTAL_FREQ,
@@ -122,6 +154,26 @@ fn main() -> ! {
         pins.tx2.into_mode(),
         pins.rx2.into_mode(),
     );
+
+    let led_and_buttons = LedAndButtons {
+        led: pins.led.into_mode(),
+        button_a: pins.button_a.into_mode(),
+        button_b: pins.button_b.into_mode(),
+        button_x: pins.button_x.into_mode(),
+        button_y: pins.button_y.into_mode(),
+    };
+
+    led_and_buttons
+        .button_a
+        .set_interrupt_enabled(Interrupt::EdgeLow, true);
+
+    cortex_m::interrupt::free(|cs| {
+        GLOBAL_PINS.borrow(cs).set(Some(led_and_buttons));
+    });
+
+    unsafe {
+        pac::NVIC::unmask(pac::Interrupt::IO_IRQ_BANK0);
+    }
 
     let mut delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().integer());
 
@@ -155,19 +207,43 @@ fn main() -> ! {
         pins.display_spi_copi.into_mode(),
     );
 
-    let mut n = 0u16;
+    let mut x = 0u16;
+    let mut y = 0u16;
     loop {
         display.display.clear_screen();
-        n = n.wrapping_add(1);
 
         display.display.draw_string(
             "YOLOOOO",
-            n,
-            10,
+            x,
+            y,
             &Color::from_default(DefaultColor::Blue),
             Font57,
         );
 
         delay.delay_ms(80);
+    }
+}
+
+#[interrupt]
+fn IO_IRQ_BANK0() {
+    // The `#[interrupt]` attribute covertly converts this to `&'static mut Option<LedAndButton>`
+    static mut LED_AND_BUTTONS: Option<LedAndButtons> = None;
+
+    // Lazy initialization: Steal the global button and led pins
+    if LED_AND_BUTTONS.is_none() {
+        cortex_m::interrupt::free(|cs| {
+            *LED_AND_BUTTONS = GLOBAL_PINS.borrow(cs).take();
+        });
+    }
+
+    if let Some(LedAndButtons {
+        led,
+        button_a,
+        button_b,
+        button_x,
+        button_y,
+    }) = LED_AND_BUTTONS
+    {
+        button_a.clear_interrupt(Interrupt::EdgeLow);
     }
 }
