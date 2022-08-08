@@ -1,6 +1,6 @@
 use bhboard as bsp;
-use bsp::hal::spi;
 use bsp::hal::spi::Enabled;
+use bsp::{hal::spi, pac::DMA};
 use cortex_m::delay::Delay;
 use display_interface::{DataFormat, WriteOnlyDataCommand};
 use embedded_hal::digital::v2::OutputPin;
@@ -122,8 +122,7 @@ impl DisplayDevice {
         }
     }
 
-    pub fn draw(&mut self, buffer: &DisplayBuffer) {
-        self.display.set_address_window(0, 0, 127, 159);
+    pub fn draw(&mut self, dma: &mut DMA, buffer: &DisplayBuffer) {
         self.display
             .spi
             .send_commands(DataFormat::U8(&[Instruction::RAMWR.to_u8().unwrap()]))
@@ -136,12 +135,46 @@ impl DisplayDevice {
         self.display.spi.dc.set_high().unwrap();
 
         // Send words over SPI
-        let err = send_u8(&mut self.spi, buf);
+        let buffer_bytes = buffer.bytes();
+        let buffer_ptr = buffer_bytes.as_ptr();
+        let buffer_len = buffer_bytes.len();
+        const SPI0_BASE: u32 = 0x4003c000;
+        const SSPDR_OFFSET: u32 = 0x008;
+        dma.ch[0]
+            .ch_read_addr
+            .write(|w| unsafe { w.bits(buffer_ptr as u32) });
+        dma.ch[0]
+            .ch_write_addr
+            .write(|w| unsafe { w.bits(SPI0_BASE + SSPDR_OFFSET) });
+        dma.ch[0]
+            .ch_trans_count
+            .write(|w| unsafe { w.bits(buffer_len as u32) });
+        dma.ch[0].ch_ctrl_trig.write(|w| {
+            w.incr_read().set_bit();
+            w.incr_write().clear_bit();
+            w.high_priority().clear_bit();
+            w.data_size().size_byte();
+            // treq sel?
+            w.en().set_bit();
+            w
+        });
+        const DMA_CHANNEL: u32 = 0;
+        dma.multi_chan_trigger
+            .write(|w| unsafe { w.multi_chan_trigger().bits(1 << DMA_CHANNEL) });
+
+        while dma.ch[0].ch_ctrl_trig.read().busy().bit_is_set() {}
+
+        // self.display
+        //     .spi
+        //     .spi
+        //     .send_u8(&mut self.display.spi.spi, DataFormat::U8(buffer.bytes()))
+        //     .unwrap();
 
         // Deassert chip select pin
-        self.cs.set_high().ok();
+        self.display.spi.cs.set_high().ok();
         self.display
             .spi
-            .send_data(DataFormat::U8(&buffer.bytes()[..]));
+            .send_data(DataFormat::U8(&buffer.bytes()[..]))
+            .unwrap();
     }
 }

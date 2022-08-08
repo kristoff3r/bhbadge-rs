@@ -165,22 +165,23 @@ fn main() -> ! {
 
     let mut x = 40;
     let mut y = 40;
+    display.display.set_address_window(0, 0, 127, 159);
     loop {
         display_buffer.clear();
-        display_buffer.draw_rect(y..y + 30, x..x + 30, 0xffff);
-        display.draw(&display_buffer);
+        display_buffer.draw_rect(y / 5..y / 5 + 30, x / 5..x / 5 + 30, 0xffff);
+        display.draw(&mut pac.DMA, &display_buffer);
 
         if led_and_buttons.button_a.is_high().unwrap_or(false) {
-            y += 1;
+            y += 9;
         }
         if led_and_buttons.button_b.is_high().unwrap_or(false) {
-            y -= 1;
+            y -= 9;
         }
         if led_and_buttons.button_x.is_high().unwrap_or(false) {
-            x += 1;
+            x += 9;
         }
         if led_and_buttons.button_y.is_high().unwrap_or(false) {
-            x -= 1;
+            x -= 9;
         }
     }
 }

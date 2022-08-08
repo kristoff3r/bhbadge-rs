@@ -7,7 +7,7 @@ use hal::digital::v2::OutputPin;
 
 use display_interface::{DataFormat, DisplayError, WriteOnlyDataCommand};
 
-fn send_u8<SPI: hal::blocking::spi::Write<u8>>(
+pub fn send_u8<SPI: hal::blocking::spi::Write<u8>>(
     spi: &mut SPI,
     words: DataFormat<'_>,
 ) -> Result<(), DisplayError> {
@@ -110,9 +110,9 @@ fn send_u8<SPI: hal::blocking::spi::Write<u8>>(
 ///
 /// This combines the SPI peripheral and a data/command as well as a chip-select pin
 pub struct SPIInterface<SPI, DC, CS> {
-    spi: SPI,
-    dc: DC,
-    cs: CS,
+    pub spi: SPI,
+    pub dc: DC,
+    pub cs: CS,
 }
 
 impl<SPI, DC, CS> SPIInterface<SPI, DC, CS>
