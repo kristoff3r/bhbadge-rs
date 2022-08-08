@@ -1,13 +1,14 @@
 #![no_std]
 #![no_main]
 
+mod display;
+mod spinlocks;
+
 use core::cell::Cell;
 
-use cortex_m::{delay::Delay, interrupt::Mutex};
-use embedded_hal::{
-    digital::v2::{InputPin, OutputPin},
-    PwmPin,
-};
+use cortex_m::interrupt::Mutex;
+use display::RawDisplayBuffer;
+use embedded_hal::{digital::v2::InputPin, PwmPin};
 use embedded_time::{fixed_point::FixedPoint, rate::Extensions};
 use panic_probe as _;
 
@@ -35,6 +36,8 @@ use st7735::{
     fonts::font57::Font57,
 };
 
+use crate::display::{DisplayBuffer, DisplayDevice};
+
 fn init_uart(
     clocks: &ClocksManager,
     uart: pac::UART1,
@@ -52,52 +55,6 @@ fn init_uart(
     defmt_serial::defmt_serial(uart);
 
     defmt::info!("defmt initialized");
-}
-
-struct Display<SPI> {
-    display: st7735::ST7735<
-        display_interface_spi::SPIInterface<SPI, bsp::DisplaySpiDc, bsp::DisplaySpiCs>,
-        1,
-        2,
-    >,
-    _reset: bsp::DisplayReset,
-    _sck: bsp::DisplaySpiSck,
-    _copi: bsp::DisplaySpiCopi,
-}
-
-impl<SPI> Display<SPI>
-where
-    SPI: embedded_hal::blocking::spi::Write<u8>,
-    SPI::Error: core::fmt::Debug,
-{
-    fn new(
-        delay: &mut Delay,
-        spi: SPI,
-        mut cs: bsp::DisplaySpiCs,
-        dc: bsp::DisplaySpiDc,
-        mut reset: bsp::DisplayReset,
-        sck: bsp::DisplaySpiSck,
-        copi: bsp::DisplaySpiCopi,
-    ) -> Self {
-        // Hard reset
-        cs.set_low().unwrap();
-        reset.set_low().unwrap();
-        delay.delay_ms(50);
-        reset.set_high().unwrap();
-        delay.delay_ms(150);
-        cs.set_high().unwrap();
-
-        let mut display =
-            st7735::ST7735::new(display_interface_spi::SPIInterface::new(spi, dc, cs), delay);
-        display.clear_screen();
-
-        Self {
-            display,
-            _reset: reset,
-            _sck: sck,
-            _copi: copi,
-        }
-    }
 }
 
 struct LedAndButtons {
@@ -118,6 +75,9 @@ fn core1_task() -> ! {
 
 #[entry]
 fn main() -> ! {
+    static mut RAW_DISPLAY_BUFFER: RawDisplayBuffer = [[0; 128]; 160];
+    let mut display_buffer: DisplayBuffer = DisplayBuffer::new(RAW_DISPLAY_BUFFER);
+
     let mut pac = pac::Peripherals::take().unwrap();
     let core = pac::CorePeripherals::take().unwrap();
     let mut watchdog = Watchdog::new(pac.WATCHDOG);
@@ -163,13 +123,9 @@ fn main() -> ! {
         button_y: pins.button_y.into_mode(),
     };
 
-    led_and_buttons
-        .button_a
-        .set_interrupt_enabled(Interrupt::EdgeLow, true);
-
-    cortex_m::interrupt::free(|cs| {
-        GLOBAL_PINS.borrow(cs).set(Some(led_and_buttons));
-    });
+    // cortex_m::interrupt::free(|cs| {
+    //     GLOBAL_PINS.borrow(cs).set(Some(led_and_buttons));
+    // });
 
     unsafe {
         pac::NVIC::unmask(pac::Interrupt::IO_IRQ_BANK0);
@@ -197,7 +153,7 @@ fn main() -> ! {
         &embedded_hal::spi::MODE_0,
     );
 
-    let mut display = Display::new(
+    let mut display = DisplayDevice::new(
         &mut delay,
         spi,
         pins.display_spi_cs.into_mode(),
@@ -207,21 +163,31 @@ fn main() -> ! {
         pins.display_spi_copi.into_mode(),
     );
 
-    let mut x = 0u16;
-    let mut y = 0u16;
+    let mut x = 40;
+    let mut y = 40;
     loop {
-        display.display.clear_screen();
+        display_buffer.clear();
+        display_buffer.draw_rect(y..y + 30, x..x + 30, 0xffff);
+        display.draw(&display_buffer);
 
-        display.display.draw_string(
-            "YOLOOOO",
-            x,
-            y,
-            &Color::from_default(DefaultColor::Blue),
-            Font57,
-        );
-
-        delay.delay_ms(80);
+        if led_and_buttons.button_a.is_high().unwrap_or(false) {
+            y += 1;
+        }
+        if led_and_buttons.button_b.is_high().unwrap_or(false) {
+            y -= 1;
+        }
+        if led_and_buttons.button_x.is_high().unwrap_or(false) {
+            x += 1;
+        }
+        if led_and_buttons.button_y.is_high().unwrap_or(false) {
+            x -= 1;
+        }
     }
+}
+
+struct Position {
+    x: usize,
+    y: usize,
 }
 
 #[interrupt]

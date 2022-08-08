@@ -30,7 +30,7 @@ use num_derive::{FromPrimitive, ToPrimitive};
 /// ST7735 driver to connect to TFT displays. The driver allows to draw simple shapes,
 /// and reset the display.
 pub struct ST7735<DISPLAY, const ROWSTART: u16, const COLSTART: u16> {
-    spi: DISPLAY,
+    pub spi: DISPLAY,
 }
 
 /// Display orientation.
@@ -178,7 +178,7 @@ where
         }
     }
 
-    fn write_cmd(&mut self, instruction: Instruction, arguments: &[u8]) {
+    pub fn write_cmd(&mut self, instruction: Instruction, arguments: &[u8]) {
         self.spi
             .send_commands(DataFormat::U8(&[instruction.to_u8().unwrap()]))
             .unwrap();
@@ -213,7 +213,7 @@ where
     }
 
     /// Sets the address window for the display.
-    fn set_address_window(&mut self, x0: u16, y0: u16, x1: u16, y1: u16) {
+    pub fn set_address_window(&mut self, x0: u16, y0: u16, x1: u16, y1: u16) {
         let x0 = (x0 + COLSTART).to_be_bytes();
         let x1 = (x1 + COLSTART).to_be_bytes();
         let y0 = (y0 + ROWSTART).to_be_bytes();
