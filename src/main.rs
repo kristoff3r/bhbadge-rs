@@ -1,26 +1,21 @@
 #![no_std]
 #![no_main]
 
-mod display;
-mod spinlocks;
+pub mod display;
 
-use core::cell::Cell;
-
-use cortex_m::interrupt::Mutex;
-use display::RawDisplayBuffer;
-use embedded_hal::{digital::v2::InputPin, PwmPin};
-use embedded_time::{fixed_point::FixedPoint, rate::Extensions};
-use panic_probe as _;
+use core::sync::atomic::{AtomicU8, Ordering};
 
 use bhboard as bsp;
-
-use bsp::hal::{
-    clocks::{init_clocks_and_plls, Clock},
-    gpio::{self, Interrupt},
-    pac::{self, interrupt},
-    sio::Sio,
-    watchdog::Watchdog,
+use cortex_m::{delay::Delay, prelude::_embedded_hal_blocking_spi_Write};
+use display::{RawDisplayBuffer, RawSpi};
+use embedded_hal::{
+    digital::v2::{InputPin, OutputPin},
+    PwmPin,
 };
+use embedded_time::{fixed_point::FixedPoint, rate::Extensions};
+use num_traits::cast::ToPrimitive;
+use panic_probe as _;
+
 use bsp::{
     entry,
     hal::{
@@ -29,12 +24,20 @@ use bsp::{
         multicore::{Multicore, Stack},
         pwm, spi, uart,
     },
+    pac::DMA,
     ButtonA, ButtonB, ButtonX, ButtonY, Led,
 };
-use st7735::{
-    color::{Color, DefaultColor},
-    fonts::font57::Font57,
+use bsp::{
+    hal::{
+        clocks::{init_clocks_and_plls, Clock},
+        gpio, pac,
+        sio::Sio,
+        watchdog::Watchdog,
+    },
+    pac::RESETS,
 };
+use rp2040_hal::dma::DREQ_SPI0_TX;
+use st7735::command::Instruction;
 
 use crate::display::{DisplayBuffer, DisplayDevice};
 
@@ -53,20 +56,16 @@ fn init_uart(
         .unwrap();
 
     defmt_serial::defmt_serial(uart);
-
     defmt::info!("defmt initialized");
 }
 
-struct LedAndButtons {
-    led: Led,
-    button_a: ButtonA,
-    button_b: ButtonB,
-    button_x: ButtonX,
-    button_y: ButtonY,
+pub struct LedAndButtons {
+    pub led: Led,
+    pub button_a: ButtonA,
+    pub button_b: ButtonB,
+    pub button_x: ButtonX,
+    pub button_y: ButtonY,
 }
-
-// Used for hand-off to the interrupt handler
-static GLOBAL_PINS: Mutex<Cell<Option<LedAndButtons>>> = Mutex::new(Cell::new(None));
 
 static mut CORE1_STACK: Stack<4096> = Stack::new();
 fn core1_task() -> ! {
@@ -75,8 +74,11 @@ fn core1_task() -> ! {
 
 #[entry]
 fn main() -> ! {
-    static mut RAW_DISPLAY_BUFFER: RawDisplayBuffer = [[0; 128]; 160];
-    let mut display_buffer: DisplayBuffer = DisplayBuffer::new(RAW_DISPLAY_BUFFER);
+    static mut RAW_DISPLAY_BUFFERS: [RawDisplayBuffer; 2] = [[[0; 128]; 160]; 2];
+    let mut display_buffers: [DisplayBuffer; 2] = {
+        let [buffer0, buffer1] = RAW_DISPLAY_BUFFERS;
+        [DisplayBuffer::new(buffer0), DisplayBuffer::new(buffer1)]
+    };
 
     let mut pac = pac::Peripherals::take().unwrap();
     let core = pac::CorePeripherals::take().unwrap();
@@ -166,51 +168,174 @@ fn main() -> ! {
     let mut x = 40;
     let mut y = 40;
     display.display.set_address_window(0, 0, 127, 159);
+    // Assert chip select pin
+    let (mut spi, mut dc, mut cs) = display.display.spi.release();
+    cs.set_low().unwrap();
+
+    init_dma(&mut pac.RESETS, &mut pac.DMA);
+
     loop {
-        display_buffer.clear();
-        display_buffer.draw_rect(y / 5..y / 5 + 30, x / 5..x / 5 + 30, 0xffff);
-        display.draw(&mut pac.DMA, &display_buffer);
+        // At this point the DMA takes ownership over display_buffers[1]
+        send_and_clear_buffer(
+            &mut pac.DMA,
+            &mut spi,
+            &mut delay,
+            &mut dc,
+            &display_buffers[1],
+            &0,
+        );
 
-        if led_and_buttons.button_a.is_high().unwrap_or(false) {
-            y += 9;
-        }
-        if led_and_buttons.button_b.is_high().unwrap_or(false) {
-            y -= 9;
-        }
-        if led_and_buttons.button_x.is_high().unwrap_or(false) {
-            x += 9;
-        }
-        if led_and_buttons.button_y.is_high().unwrap_or(false) {
-            x -= 9;
-        }
+        // Simultaniously we update the world and draw to display_buffers[0]
+        update_input(&mut x, &mut y, &led_and_buttons);
+        display_buffers[0].draw_rect(y..y + 30, x..x + 30, 0xffff);
+
+        // Wait for the dma to be done with display_buffers[1]
+        wait_for_dma_done();
+
+        // Swap the buffers to be ready for the next loop
+        display_buffers.swap(0, 1);
     }
 }
 
-struct Position {
-    x: usize,
-    y: usize,
+fn update_input(x: &mut usize, y: &mut usize, led_and_buttons: &LedAndButtons) {
+    if led_and_buttons.button_a.is_high().unwrap_or(false) {
+        *y = (*y + 160 + 1) % 160;
+    }
+    if led_and_buttons.button_b.is_high().unwrap_or(false) {
+        *y = (*y + 160 - 1) % 160;
+    }
+    if led_and_buttons.button_x.is_high().unwrap_or(false) {
+        *x = (*x + 128 + 1) % 128;
+    }
+    if led_and_buttons.button_y.is_high().unwrap_or(false) {
+        *x = (*x + 128 - 1) % 128;
+    }
 }
 
-#[interrupt]
-fn IO_IRQ_BANK0() {
-    // The `#[interrupt]` attribute covertly converts this to `&'static mut Option<LedAndButton>`
-    static mut LED_AND_BUTTONS: Option<LedAndButtons> = None;
+const TX_CHANNEL: u8 = 0;
+const CLEAR_CHANNEL: u8 = 1;
+const MARK_NOT_BUSY_CHANNEL: u8 = 2;
+static DMA_BUSY: AtomicU8 = AtomicU8::new(0);
 
-    // Lazy initialization: Steal the global button and led pins
-    if LED_AND_BUTTONS.is_none() {
-        cortex_m::interrupt::free(|cs| {
-            *LED_AND_BUTTONS = GLOBAL_PINS.borrow(cs).take();
-        });
-    }
+fn init_dma(resets: &mut RESETS, dma: &mut DMA) {
+    resets.reset.modify(|_, w| w.dma().set_bit());
+    resets.reset.modify(|_, w| w.dma().clear_bit());
+    while resets.reset_done.read().dma().bit_is_clear() {}
 
-    if let Some(LedAndButtons {
-        led,
-        button_a,
-        button_b,
-        button_x,
-        button_y,
-    }) = LED_AND_BUTTONS
-    {
-        button_a.clear_interrupt(Interrupt::EdgeLow);
-    }
+    const SPI0_BASE: u32 = 0x4003c000;
+    const SSPDR_OFFSET: u32 = 0x008;
+    let tx_channel = &dma.ch[TX_CHANNEL as usize];
+    let clear_channel = &dma.ch[CLEAR_CHANNEL as usize];
+    let mark_not_busy_channel = &dma.ch[MARK_NOT_BUSY_CHANNEL as usize];
+
+    tx_channel
+        .ch_write_addr
+        .write(|w| unsafe { w.bits(SPI0_BASE + SSPDR_OFFSET) });
+    tx_channel
+        .ch_trans_count
+        .write(|w| unsafe { w.bits(128 * 160 * 2) });
+    tx_channel.ch_al1_ctrl.write(|w| {
+        w.incr_read().set_bit();
+        w.incr_write().clear_bit();
+        w.high_priority().clear_bit();
+        w.data_size().size_byte();
+        unsafe {
+            w.treq_sel().bits(DREQ_SPI0_TX);
+        }
+        w.bswap().clear_bit();
+        w.ring_sel().clear_bit();
+        w.irq_quiet().clear_bit();
+        w.sniff_en().clear_bit();
+        unsafe {
+            w.ring_size().bits(0);
+            w.chain_to().bits(CLEAR_CHANNEL);
+        }
+        w.en().set_bit();
+        w
+    });
+
+    clear_channel
+        .ch_trans_count
+        .write(|w| unsafe { w.bits(128 * 160) });
+    clear_channel.ch_al1_ctrl.write(|w| {
+        w.incr_read().clear_bit();
+        w.incr_write().set_bit();
+        w.high_priority().clear_bit();
+        w.data_size().size_halfword();
+        w.treq_sel().permanent();
+        w.bswap().clear_bit();
+        w.ring_sel().clear_bit();
+        w.irq_quiet().clear_bit();
+        w.sniff_en().clear_bit();
+        unsafe {
+            w.ring_size().bits(0);
+            w.chain_to().bits(MARK_NOT_BUSY_CHANNEL);
+        }
+        w.en().set_bit();
+        w
+    });
+
+    static ZERO: &'static u8 = &0;
+    mark_not_busy_channel
+        .ch_al1_read_addr
+        .write(|w| unsafe { w.bits(ZERO as *const u8 as u32) });
+    mark_not_busy_channel
+        .ch_write_addr
+        .write(|w| unsafe { w.bits(&DMA_BUSY as *const AtomicU8 as u32) });
+    mark_not_busy_channel
+        .ch_trans_count
+        .write(|w| unsafe { w.bits(1) });
+    mark_not_busy_channel.ch_al1_ctrl.write(|w| {
+        w.incr_read().clear_bit();
+        w.incr_write().clear_bit();
+        w.high_priority().clear_bit();
+        w.data_size().size_byte();
+        w.treq_sel().permanent();
+        w.bswap().clear_bit();
+        w.ring_sel().clear_bit();
+        w.irq_quiet().clear_bit();
+        w.sniff_en().clear_bit();
+        unsafe {
+            w.ring_size().bits(0);
+            w.chain_to().bits(MARK_NOT_BUSY_CHANNEL);
+        }
+        w.en().set_bit();
+        w
+    });
+}
+
+fn send_and_clear_buffer(
+    dma: &mut DMA,
+    spi: &mut RawSpi,
+    delay: &mut Delay,
+    dc: &mut bsp::DisplaySpiDc,
+    buffer: &DisplayBuffer,
+    clear_color: &u16,
+) {
+    // 1 = data, 0 = command
+    dc.set_low().unwrap();
+
+    // Send words over SPI
+    spi.write(&[Instruction::RAMWR.to_u8().unwrap()]).unwrap();
+    delay.delay_us(10);
+
+    // 1 = data, 0 = command
+    dc.set_high().unwrap();
+
+    DMA_BUSY.store(1, Ordering::SeqCst);
+    let tx_channel = &dma.ch[TX_CHANNEL as usize];
+    let clear_channel = &dma.ch[CLEAR_CHANNEL as usize];
+    clear_channel
+        .ch_read_addr
+        .write(|w| unsafe { w.bits(clear_color as *const u16 as u32) });
+    clear_channel
+        .ch_write_addr
+        .write(|w| unsafe { w.bits(buffer.bytes() as *const u8 as u32) });
+    tx_channel
+        .ch_al3_read_addr_trig
+        .write(|w| unsafe { w.bits(buffer.bytes() as *const u8 as u32) });
+}
+
+fn wait_for_dma_done() {
+    while DMA_BUSY.load(Ordering::Acquire) != 0 {}
 }
