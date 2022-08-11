@@ -214,6 +214,8 @@ fn update_input(x: &mut usize, y: &mut usize, led_and_buttons: &LedAndButtons) {
 
 const TX_CHANNEL: u8 = 0;
 const CLEAR_CHANNEL: u8 = 1;
+// TODO: Wasting an entire channel to check for when the DMA done is a bad solution.
+// We should use interrupts instead.
 const MARK_NOT_BUSY_CHANNEL: u8 = 2;
 static DMA_BUSY: AtomicU8 = AtomicU8::new(0);
 
