@@ -2,6 +2,7 @@
 #![no_main]
 
 pub mod display;
+pub mod gameboy;
 
 use core::sync::atomic::{AtomicU8, Ordering};
 
@@ -173,6 +174,13 @@ fn main() -> ! {
     cs.set_low().unwrap();
 
     init_dma(&mut pac.RESETS, &mut pac.DMA);
+    let rom = include_bytes!("../pokemon.gb");
+    let rom = padme_core::Rom::load(rom.as_slice()).unwrap_or_else(|_| panic!());
+
+    let mut emulator = padme_core::System::new(rom, gameboy::MySerialConsole, gameboy::MySpeaker);
+    // Set the number of frame per seconds
+    // This also sets the number of cycles needed per frame given the fixed CPU clock frequency
+    emulator.set_frame_rate(5);
 
     loop {
         // At this point the DMA takes ownership over display_buffers[1]
@@ -186,8 +194,23 @@ fn main() -> ! {
         );
 
         // Simultaniously we update the world and draw to display_buffers[0]
-        update_input(&mut x, &mut y, &led_and_buttons);
-        display_buffers[0].draw_rect(y..y + 30, x..x + 30, 0xffff);
+        emulator.set_button(
+            padme_core::Button::A,
+            led_and_buttons.button_x.is_high().unwrap(),
+        );
+        emulator.set_button(
+            padme_core::Button::B,
+            led_and_buttons.button_y.is_high().unwrap(),
+        );
+        emulator.set_button(
+            padme_core::Button::Start,
+            led_and_buttons.button_b.is_high().unwrap(),
+        );
+
+        emulator.update_frame(&mut display_buffers[0]);
+
+        // update_input(&mut x, &mut y, &led_and_buttons);
+        // display_buffers[0].draw_rect(y..y + 30, x..x + 30, 0xffff);
 
         // Wait for the dma to be done with display_buffers[1]
         wait_for_dma_done();
