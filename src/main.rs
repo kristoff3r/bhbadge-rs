@@ -41,7 +41,6 @@ use usb_serial::UsbManager;
 use crate::{
     color::Pixel,
     display::{DisplayBuffer, DisplayDevice},
-    spinlocks::UsbSpinlock,
 };
 
 pub struct LedAndButtons {
@@ -154,16 +153,15 @@ fn main() -> ! {
 
     let mut clear_color = Color::BLACK;
 
+    let mut counter = 0u16;
+
     loop {
         set_clear_color(clear_color.into());
         clear_color.red = clear_color.red.wrapping_add(1);
-        if clear_color.red == 0 {
-            UsbSpinlock::claim()
-                .as_mut()
-                .unwrap()
-                .write_all(b"Hello world!\n")
-                .unwrap();
+        if counter & 0x1f == 0 {
+            defmt::debug!("Frame count: {}", counter);
         }
+        counter = counter.wrapping_add(1);
 
         // At this point the DMA takes ownership over display_buffers[1]
         send_and_clear_buffer(
