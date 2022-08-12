@@ -1,11 +1,13 @@
 #![no_std]
 #![no_main]
 
+mod color;
 pub mod display;
 
-use core::sync::atomic::{AtomicU8, Ordering};
+use core::sync::atomic::{AtomicU32, AtomicU8, Ordering};
 
 use bhboard as bsp;
+use color::Color;
 use cortex_m::{delay::Delay, prelude::_embedded_hal_blocking_spi_Write};
 use display::{RawDisplayBuffer, RawSpi};
 use embedded_hal::{
@@ -39,7 +41,10 @@ use bsp::{
 use rp2040_hal::dma::DREQ_SPI0_TX;
 use st7735::command::Instruction;
 
-use crate::display::{DisplayBuffer, DisplayDevice};
+use crate::{
+    color::Pixel,
+    display::{DisplayBuffer, DisplayDevice},
+};
 
 fn init_uart(
     clocks: &ClocksManager,
@@ -74,7 +79,7 @@ fn core1_task() -> ! {
 
 #[entry]
 fn main() -> ! {
-    static mut RAW_DISPLAY_BUFFERS: [RawDisplayBuffer; 2] = [[[0; 128]; 160]; 2];
+    static mut RAW_DISPLAY_BUFFERS: [RawDisplayBuffer; 2] = [RawDisplayBuffer::new(); 2];
     let mut display_buffers: [DisplayBuffer; 2] = {
         let [buffer0, buffer1] = RAW_DISPLAY_BUFFERS;
         [DisplayBuffer::new(buffer0), DisplayBuffer::new(buffer1)]
@@ -174,7 +179,10 @@ fn main() -> ! {
 
     init_dma(&mut pac.RESETS, &mut pac.DMA);
 
+    let mut clear_color = Color::BLACK;
     loop {
+        clear_color.red = clear_color.red.wrapping_add(1);
+        set_clear_color(clear_color.into());
         // At this point the DMA takes ownership over display_buffers[1]
         send_and_clear_buffer(
             &mut pac.DMA,
@@ -182,12 +190,11 @@ fn main() -> ! {
             &mut delay,
             &mut dc,
             &display_buffers[1],
-            &0,
         );
 
         // Simultaniously we update the world and draw to display_buffers[0]
         update_input(&mut x, &mut y, &led_and_buttons);
-        display_buffers[0].draw_rect(y..y + 30, x..x + 30, 0xffff);
+        display_buffers[0].draw_rect(y..y + 30, x..x + 30, Color::BLUE.into());
 
         // Wait for the dma to be done with display_buffers[1]
         wait_for_dma_done();
@@ -218,6 +225,13 @@ const CLEAR_CHANNEL: u8 = 1;
 // We should use interrupts instead.
 const MARK_NOT_BUSY_CHANNEL: u8 = 2;
 static DMA_BUSY: AtomicU8 = AtomicU8::new(0);
+static CLEAR_COLOR: AtomicU32 = AtomicU32::new(0);
+
+fn set_clear_color(pixel: Pixel) {
+    let raw_pixel = pixel.raw_pixel();
+    let doubled_raw_pixel = (raw_pixel as u32) | (raw_pixel as u32) << 16;
+    CLEAR_COLOR.store(doubled_raw_pixel, Ordering::Relaxed);
+}
 
 fn init_dma(resets: &mut RESETS, dma: &mut DMA) {
     resets.reset.modify(|_, w| w.dma().set_bit());
@@ -257,13 +271,16 @@ fn init_dma(resets: &mut RESETS, dma: &mut DMA) {
     });
 
     clear_channel
+        .ch_read_addr
+        .write(|w| unsafe { w.bits(&CLEAR_COLOR as *const AtomicU32 as u32) });
+    clear_channel
         .ch_trans_count
-        .write(|w| unsafe { w.bits(128 * 160) });
+        .write(|w| unsafe { w.bits(128 * 160 / 2) }); // We write two pixels at a time
     clear_channel.ch_al1_ctrl.write(|w| {
         w.incr_read().clear_bit();
         w.incr_write().set_bit();
         w.high_priority().clear_bit();
-        w.data_size().size_halfword();
+        w.data_size().size_word();
         w.treq_sel().permanent();
         w.bswap().clear_bit();
         w.ring_sel().clear_bit();
@@ -312,7 +329,6 @@ fn send_and_clear_buffer(
     delay: &mut Delay,
     dc: &mut bsp::DisplaySpiDc,
     buffer: &DisplayBuffer,
-    clear_color: &u16,
 ) {
     // 1 = data, 0 = command
     dc.set_low().unwrap();
@@ -327,9 +343,6 @@ fn send_and_clear_buffer(
     DMA_BUSY.store(1, Ordering::SeqCst);
     let tx_channel = &dma.ch[TX_CHANNEL as usize];
     let clear_channel = &dma.ch[CLEAR_CHANNEL as usize];
-    clear_channel
-        .ch_read_addr
-        .write(|w| unsafe { w.bits(clear_color as *const u16 as u32) });
     clear_channel
         .ch_write_addr
         .write(|w| unsafe { w.bits(buffer.bytes() as *const u8 as u32) });
