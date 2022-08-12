@@ -18,7 +18,6 @@ num-traits = { version = "0.2.15", default-features = false }
 rp2040-hal = "0.5.0"
 usbd-serial = "0.1.1"
 usb-device = "0.2.9"
-panic-halt = "0.2.0"
 critical-section = "0.2.7"
 
 

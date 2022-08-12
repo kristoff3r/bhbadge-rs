@@ -7,7 +7,10 @@ mod spinlocks;
 mod usb_serial;
 mod usb_serial_defmt;
 
-use core::sync::atomic::{AtomicU32, AtomicU8, Ordering};
+use core::{
+    panic::PanicInfo,
+    sync::atomic::{AtomicU32, AtomicU8, Ordering},
+};
 
 use bhboard as bsp;
 use bsp::{
@@ -33,7 +36,6 @@ use embedded_hal::{
 };
 use embedded_time::{fixed_point::FixedPoint, rate::Extensions};
 use num_traits::cast::ToPrimitive;
-use panic_halt as _;
 use rp2040_hal::dma::DREQ_SPI0_TX;
 use st7735::command::Instruction;
 use usb_serial::UsbManager;
@@ -333,4 +335,17 @@ fn send_and_clear_buffer(
 
 fn wait_for_dma_done() {
     while DMA_BUSY.load(Ordering::Acquire) != 0 {}
+}
+
+#[panic_handler]
+fn panic(info: &PanicInfo) -> ! {
+    defmt::error!("{}", defmt::Display2Format(info));
+    defmt_panic();
+}
+
+#[defmt::panic_handler]
+fn defmt_panic() -> ! {
+    loop {
+        cortex_m::asm::wfi();
+    }
 }
