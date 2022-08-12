@@ -95,8 +95,6 @@ fn main() -> ! {
         &mut pac.RESETS,
     );
 
-    // Enable the USB interrupt
-
     let led_and_buttons = LedAndButtons {
         led: pins.led.into_mode(),
         button_a: pins.button_a.into_mode(),
