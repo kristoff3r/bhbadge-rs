@@ -15,26 +15,6 @@ use crate::spinlocks::UsbSpinlock;
 
 static mut USB_BUS_ALLOCATOR: Option<UsbBusAllocator<UsbBus>> = None;
 
-/*
-fn init_uart(
-    clocks: &ClocksManager,
-    uart: pac::UART1,
-    resets: &mut pac::RESETS,
-    tx: Pin<gpio::bank0::Gpio8, gpio::FunctionUart>,
-    rx: Pin<gpio::bank0::Gpio9, gpio::FunctionUart>,
-) {
-    let uart = uart::UartPeripheral::new(uart, (tx, rx), resets)
-        .enable(
-            uart::common_configs::_115200_8_N_1,
-            clocks.peripheral_clock.freq(),
-        )
-        .unwrap();
-
-    defmt_serial::defmt_serial(uart);
-    defmt::info!("defmt initialized");
-}
- */
-
 pub struct UsbManager {
     usb_dev: UsbDevice<'static, UsbBus>,
     serial: SerialPort<'static, UsbBus>,
