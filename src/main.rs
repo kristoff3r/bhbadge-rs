@@ -87,6 +87,17 @@ fn main() -> ! {
     )
     .ok()
     .unwrap();
+    let mut delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().integer());
+
+    // Initialize the USB early to get debug information up and running
+    // It still takes around 800ms after this point before messages start
+    // showing up on the host
+    UsbManager::init(
+        pac.USBCTRL_REGS,
+        pac.USBCTRL_DPRAM,
+        clocks.usb_clock,
+        &mut pac.RESETS,
+    );
 
     let pins = bsp::Pins::new(
         pac.IO_BANK0,
@@ -103,8 +114,6 @@ fn main() -> ! {
         button_y: pins.button_y.into_mode(),
     };
 
-    let mut delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().integer());
-
     // Turn on backlight
     let backlight = pins.display_backlight_pwm;
     let mut pwm_slices = pwm::Slices::new(pac.PWM, &mut pac.RESETS);
@@ -115,8 +124,6 @@ fn main() -> ! {
     let channel = &mut pwm.channel_b;
     channel.output_to(backlight);
     channel.set_duty(60000);
-
-    defmt::info!("pwm initialized");
 
     let spi = spi::Spi::<_, _, 8>::new(pac.SPI0).init(
         &mut pac.RESETS,
@@ -133,13 +140,6 @@ fn main() -> ! {
         pins.display_reset.into_mode(),
         pins.display_spi_sck.into_mode(),
         pins.display_spi_copi.into_mode(),
-    );
-
-    UsbManager::init(
-        pac.USBCTRL_REGS,
-        pac.USBCTRL_DPRAM,
-        clocks.usb_clock,
-        &mut pac.RESETS,
     );
 
     let mut x = 40;
