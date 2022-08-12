@@ -36,13 +36,19 @@ impl UsbManager {
     }
 
     pub fn write_all(&mut self, mut buf: &[u8]) -> Result<(), UsbError> {
+        let mut failure_count = 0;
         while !buf.is_empty() {
             match self.serial.write(buf) {
                 Ok(0) | Err(UsbError::WouldBlock) => {
                     self.maintain()?;
+                    failure_count += 1;
+                    if failure_count > 20 {
+                        return Err(UsbError::WouldBlock);
+                    }
                 }
                 Ok(n) => {
                     buf = buf.get(n..).unwrap_or(&[]);
+                    failure_count = 0;
                 }
                 Err(e) => return Err(e),
             }
