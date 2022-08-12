@@ -33,7 +33,7 @@
             elf2uf2-rs flip-link python3
 
             # Tools for accessing the serial port (using a logic analyzer)
-            sigrok-cli
+            sigrok-cli python310Packages.pyserial
           ];
 
           shellHook = ''

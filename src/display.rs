@@ -1,11 +1,7 @@
 use bhboard as bsp;
-use bsp::hal::spi;
-use bsp::hal::spi::Enabled;
+use bsp::hal::{spi, spi::Enabled};
 use cortex_m::delay::Delay;
-
 use embedded_hal::digital::v2::OutputPin;
-
-use panic_probe as _;
 
 use crate::color::Pixel;
 

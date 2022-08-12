@@ -3,66 +3,46 @@
 
 mod color;
 pub mod display;
+mod spinlocks;
+mod usb_serial;
+mod usb_serial_defmt;
 
 use core::sync::atomic::{AtomicU32, AtomicU8, Ordering};
 
 use bhboard as bsp;
+use bsp::{
+    entry,
+    hal::{
+        clocks::{init_clocks_and_plls, Clock},
+        multicore::{Multicore, Stack},
+        pac, pwm,
+        sio::Sio,
+        spi,
+        watchdog::Watchdog,
+    },
+    pac::{DMA, RESETS},
+    ButtonA, ButtonB, ButtonX, ButtonY, Led,
+};
 use color::Color;
-use cortex_m::{delay::Delay, prelude::_embedded_hal_blocking_spi_Write};
+use cortex_m::delay::Delay;
 use display::{RawDisplayBuffer, RawSpi};
 use embedded_hal::{
     digital::v2::{InputPin, OutputPin},
+    spi::FullDuplex,
     PwmPin,
 };
 use embedded_time::{fixed_point::FixedPoint, rate::Extensions};
 use num_traits::cast::ToPrimitive;
-use panic_probe as _;
-
-use bsp::{
-    entry,
-    hal::{
-        clocks::ClocksManager,
-        gpio::Pin,
-        multicore::{Multicore, Stack},
-        pwm, spi, uart,
-    },
-    pac::DMA,
-    ButtonA, ButtonB, ButtonX, ButtonY, Led,
-};
-use bsp::{
-    hal::{
-        clocks::{init_clocks_and_plls, Clock},
-        gpio, pac,
-        sio::Sio,
-        watchdog::Watchdog,
-    },
-    pac::RESETS,
-};
+use panic_halt as _;
 use rp2040_hal::dma::DREQ_SPI0_TX;
 use st7735::command::Instruction;
+use usb_serial::UsbManager;
 
 use crate::{
     color::Pixel,
     display::{DisplayBuffer, DisplayDevice},
+    spinlocks::UsbSpinlock,
 };
-
-fn init_uart(
-    clocks: &ClocksManager,
-    uart: pac::UART1,
-    resets: &mut pac::RESETS,
-    tx: Pin<gpio::bank0::Gpio8, gpio::FunctionUart>,
-    rx: Pin<gpio::bank0::Gpio9, gpio::FunctionUart>,
-) {
-    let uart = uart::UartPeripheral::new(uart, (tx, rx), resets)
-        .enable(
-            uart::common_configs::_115200_8_N_1,
-            clocks.peripheral_clock.freq(),
-        )
-        .unwrap();
-
-    defmt_serial::defmt_serial(uart);
-    defmt::info!("defmt initialized");
-}
 
 pub struct LedAndButtons {
     pub led: Led,
@@ -114,13 +94,7 @@ fn main() -> ! {
         &mut pac.RESETS,
     );
 
-    init_uart(
-        &clocks,
-        pac.UART1,
-        &mut pac.RESETS,
-        pins.tx2.into_mode(),
-        pins.rx2.into_mode(),
-    );
+    // Enable the USB interrupt
 
     let led_and_buttons = LedAndButtons {
         led: pins.led.into_mode(),
@@ -129,14 +103,6 @@ fn main() -> ! {
         button_x: pins.button_x.into_mode(),
         button_y: pins.button_y.into_mode(),
     };
-
-    // cortex_m::interrupt::free(|cs| {
-    //     GLOBAL_PINS.borrow(cs).set(Some(led_and_buttons));
-    // });
-
-    unsafe {
-        pac::NVIC::unmask(pac::Interrupt::IO_IRQ_BANK0);
-    }
 
     let mut delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().integer());
 
@@ -170,6 +136,13 @@ fn main() -> ! {
         pins.display_spi_copi.into_mode(),
     );
 
+    UsbManager::init(
+        pac.USBCTRL_REGS,
+        pac.USBCTRL_DPRAM,
+        clocks.usb_clock,
+        &mut pac.RESETS,
+    );
+
     let mut x = 40;
     let mut y = 40;
     display.display.set_address_window(0, 0, 127, 159);
@@ -180,9 +153,18 @@ fn main() -> ! {
     init_dma(&mut pac.RESETS, &mut pac.DMA);
 
     let mut clear_color = Color::BLACK;
+
     loop {
-        clear_color.red = clear_color.red.wrapping_add(1);
         set_clear_color(clear_color.into());
+        clear_color.red = clear_color.red.wrapping_add(1);
+        if clear_color.red == 0 {
+            UsbSpinlock::claim()
+                .as_mut()
+                .unwrap()
+                .write_all(b"Hello world!\n")
+                .unwrap();
+        }
+
         // At this point the DMA takes ownership over display_buffers[1]
         send_and_clear_buffer(
             &mut pac.DMA,
@@ -334,7 +316,7 @@ fn send_and_clear_buffer(
     dc.set_low().unwrap();
 
     // Send words over SPI
-    spi.write(&[Instruction::RAMWR.to_u8().unwrap()]).unwrap();
+    spi.send(Instruction::RAMWR.to_u8().unwrap()).unwrap();
     delay.delay_us(10);
 
     // 1 = data, 0 = command
