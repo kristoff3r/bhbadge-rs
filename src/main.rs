@@ -37,7 +37,7 @@ use embedded_hal::{
 };
 use embedded_time::{fixed_point::FixedPoint, rate::Extensions};
 use num_traits::cast::ToPrimitive;
-use rp2040_hal::dma::DREQ_SPI0_TX;
+use rp2040_hal::{dma::DREQ_SPI0_TX, Timer};
 use st7735::command::Instruction;
 use usb_serial::UsbManager;
 
@@ -71,6 +71,10 @@ fn main() -> ! {
     let core = pac::CorePeripherals::take().unwrap();
     let mut watchdog = Watchdog::new(pac.WATCHDOG);
     let mut sio = Sio::new(pac.SIO);
+
+    defmt::timestamp!("{=u32:us}", unsafe {
+        &(*rp2040_hal::pac::TIMER::ptr()).timelr.read().bits()
+    });
 
     let mut mc = Multicore::new(&mut pac.PSM, &mut pac.PPB, &mut sio.fifo);
     let cores = mc.cores();
@@ -160,15 +164,12 @@ fn main() -> ! {
     emulator.set_frame_rate(5);
 
     let mut clear_color = Color::BLACK;
+    set_clear_color(clear_color.into());
 
     let mut counter = 0u16;
 
     loop {
-        set_clear_color(clear_color.into());
-        clear_color.red = clear_color.red.wrapping_add(1);
-        if counter & 0x1f == 0 {
-            defmt::debug!("Frame count: {}", counter);
-        }
+        defmt::debug!("Step {}", counter);
         counter = counter.wrapping_add(1);
 
         // At this point the DMA takes ownership over display_buffers[1]
