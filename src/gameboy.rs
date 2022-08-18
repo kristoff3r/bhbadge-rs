@@ -7,7 +7,7 @@ impl<'a> Screen for DisplayBuffer {
             return;
         }
         let ptr = self.pixel_mut(y.into(), x.into());
-        *ptr = pixel.r as u16 | (pixel.g as u16) << 6 | (pixel.b as u16) << 12;
+        *ptr = (pixel.r as u16 | (pixel.g as u16) << 6 | (pixel.b as u16) << 12).into();
     }
     fn update(&mut self) {}
 }

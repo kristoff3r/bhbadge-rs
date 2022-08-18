@@ -1,64 +1,50 @@
 #![no_std]
 #![no_main]
 
+mod color;
 pub mod display;
 pub mod gameboy;
+mod spinlocks;
+mod usb_serial;
+mod usb_serial_defmt;
 
-use core::sync::atomic::{AtomicU8, Ordering};
+use core::{
+    panic::PanicInfo,
+    sync::atomic::{AtomicU32, AtomicU8, Ordering},
+};
 
 use bhboard as bsp;
-use cortex_m::{delay::Delay, prelude::_embedded_hal_blocking_spi_Write};
+use bsp::{
+    entry,
+    hal::{
+        clocks::{init_clocks_and_plls, Clock},
+        multicore::{Multicore, Stack},
+        pac, pwm,
+        sio::Sio,
+        spi,
+        watchdog::Watchdog,
+    },
+    pac::{DMA, RESETS},
+    ButtonA, ButtonB, ButtonX, ButtonY, Led,
+};
+use color::Color;
+use cortex_m::delay::Delay;
 use display::{RawDisplayBuffer, RawSpi};
 use embedded_hal::{
     digital::v2::{InputPin, OutputPin},
+    spi::FullDuplex,
     PwmPin,
 };
 use embedded_time::{fixed_point::FixedPoint, rate::Extensions};
 use num_traits::cast::ToPrimitive;
-use panic_probe as _;
-
-use bsp::{
-    entry,
-    hal::{
-        clocks::ClocksManager,
-        gpio::Pin,
-        multicore::{Multicore, Stack},
-        pwm, spi, uart,
-    },
-    pac::DMA,
-    ButtonA, ButtonB, ButtonX, ButtonY, Led,
-};
-use bsp::{
-    hal::{
-        clocks::{init_clocks_and_plls, Clock},
-        gpio, pac,
-        sio::Sio,
-        watchdog::Watchdog,
-    },
-    pac::RESETS,
-};
 use rp2040_hal::dma::DREQ_SPI0_TX;
 use st7735::command::Instruction;
+use usb_serial::UsbManager;
 
-use crate::display::{DisplayBuffer, DisplayDevice};
-
-fn init_uart(
-    clocks: &ClocksManager,
-    uart: pac::UART1,
-    resets: &mut pac::RESETS,
-    tx: Pin<gpio::bank0::Gpio8, gpio::FunctionUart>,
-    rx: Pin<gpio::bank0::Gpio9, gpio::FunctionUart>,
-) {
-    let uart = uart::UartPeripheral::new(uart, (tx, rx), resets)
-        .enable(
-            uart::common_configs::_115200_8_N_1,
-            clocks.peripheral_clock.freq(),
-        )
-        .unwrap();
-
-    defmt_serial::defmt_serial(uart);
-    defmt::info!("defmt initialized");
-}
+use crate::{
+    color::Pixel,
+    display::{DisplayBuffer, DisplayDevice},
+};
 
 pub struct LedAndButtons {
     pub led: Led,
@@ -75,7 +61,7 @@ fn core1_task() -> ! {
 
 #[entry]
 fn main() -> ! {
-    static mut RAW_DISPLAY_BUFFERS: [RawDisplayBuffer; 2] = [[[0; 128]; 160]; 2];
+    static mut RAW_DISPLAY_BUFFERS: [RawDisplayBuffer; 2] = [RawDisplayBuffer::new(); 2];
     let mut display_buffers: [DisplayBuffer; 2] = {
         let [buffer0, buffer1] = RAW_DISPLAY_BUFFERS;
         [DisplayBuffer::new(buffer0), DisplayBuffer::new(buffer1)]
@@ -102,20 +88,23 @@ fn main() -> ! {
     )
     .ok()
     .unwrap();
+    let mut delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().integer());
+
+    // Initialize the USB early to get debug information up and running
+    // It still takes around 800ms after this point before messages start
+    // showing up on the host
+    UsbManager::init(
+        pac.USBCTRL_REGS,
+        pac.USBCTRL_DPRAM,
+        clocks.usb_clock,
+        &mut pac.RESETS,
+    );
 
     let pins = bsp::Pins::new(
         pac.IO_BANK0,
         pac.PADS_BANK0,
         sio.gpio_bank0,
         &mut pac.RESETS,
-    );
-
-    init_uart(
-        &clocks,
-        pac.UART1,
-        &mut pac.RESETS,
-        pins.tx2.into_mode(),
-        pins.rx2.into_mode(),
     );
 
     let led_and_buttons = LedAndButtons {
@@ -125,16 +114,6 @@ fn main() -> ! {
         button_x: pins.button_x.into_mode(),
         button_y: pins.button_y.into_mode(),
     };
-
-    // cortex_m::interrupt::free(|cs| {
-    //     GLOBAL_PINS.borrow(cs).set(Some(led_and_buttons));
-    // });
-
-    unsafe {
-        pac::NVIC::unmask(pac::Interrupt::IO_IRQ_BANK0);
-    }
-
-    let mut delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().integer());
 
     // Turn on backlight
     let backlight = pins.display_backlight_pwm;
@@ -146,8 +125,6 @@ fn main() -> ! {
     let channel = &mut pwm.channel_b;
     channel.output_to(backlight);
     channel.set_duty(60000);
-
-    defmt::info!("pwm initialized");
 
     let spi = spi::Spi::<_, _, 8>::new(pac.SPI0).init(
         &mut pac.RESETS,
@@ -182,7 +159,18 @@ fn main() -> ! {
     // This also sets the number of cycles needed per frame given the fixed CPU clock frequency
     emulator.set_frame_rate(5);
 
+    let mut clear_color = Color::BLACK;
+
+    let mut counter = 0u16;
+
     loop {
+        set_clear_color(clear_color.into());
+        clear_color.red = clear_color.red.wrapping_add(1);
+        if counter & 0x1f == 0 {
+            defmt::debug!("Frame count: {}", counter);
+        }
+        counter = counter.wrapping_add(1);
+
         // At this point the DMA takes ownership over display_buffers[1]
         send_and_clear_buffer(
             &mut pac.DMA,
@@ -190,7 +178,6 @@ fn main() -> ! {
             &mut delay,
             &mut dc,
             &display_buffers[1],
-            &0,
         );
 
         // Simultaniously we update the world and draw to display_buffers[0]
@@ -241,6 +228,13 @@ const CLEAR_CHANNEL: u8 = 1;
 // We should use interrupts instead.
 const MARK_NOT_BUSY_CHANNEL: u8 = 2;
 static DMA_BUSY: AtomicU8 = AtomicU8::new(0);
+static CLEAR_COLOR: AtomicU32 = AtomicU32::new(0);
+
+fn set_clear_color(pixel: Pixel) {
+    let raw_pixel = pixel.raw_pixel();
+    let doubled_raw_pixel = (raw_pixel as u32) | (raw_pixel as u32) << 16;
+    CLEAR_COLOR.store(doubled_raw_pixel, Ordering::Relaxed);
+}
 
 fn init_dma(resets: &mut RESETS, dma: &mut DMA) {
     resets.reset.modify(|_, w| w.dma().set_bit());
@@ -280,13 +274,16 @@ fn init_dma(resets: &mut RESETS, dma: &mut DMA) {
     });
 
     clear_channel
+        .ch_read_addr
+        .write(|w| unsafe { w.bits(&CLEAR_COLOR as *const AtomicU32 as u32) });
+    clear_channel
         .ch_trans_count
-        .write(|w| unsafe { w.bits(128 * 160) });
+        .write(|w| unsafe { w.bits(128 * 160 / 2) }); // We write two pixels at a time
     clear_channel.ch_al1_ctrl.write(|w| {
         w.incr_read().clear_bit();
         w.incr_write().set_bit();
         w.high_priority().clear_bit();
-        w.data_size().size_halfword();
+        w.data_size().size_word();
         w.treq_sel().permanent();
         w.bswap().clear_bit();
         w.ring_sel().clear_bit();
@@ -335,13 +332,12 @@ fn send_and_clear_buffer(
     delay: &mut Delay,
     dc: &mut bsp::DisplaySpiDc,
     buffer: &DisplayBuffer,
-    clear_color: &u16,
 ) {
     // 1 = data, 0 = command
     dc.set_low().unwrap();
 
     // Send words over SPI
-    spi.write(&[Instruction::RAMWR.to_u8().unwrap()]).unwrap();
+    spi.send(Instruction::RAMWR.to_u8().unwrap()).unwrap();
     delay.delay_us(10);
 
     // 1 = data, 0 = command
@@ -350,9 +346,6 @@ fn send_and_clear_buffer(
     DMA_BUSY.store(1, Ordering::SeqCst);
     let tx_channel = &dma.ch[TX_CHANNEL as usize];
     let clear_channel = &dma.ch[CLEAR_CHANNEL as usize];
-    clear_channel
-        .ch_read_addr
-        .write(|w| unsafe { w.bits(clear_color as *const u16 as u32) });
     clear_channel
         .ch_write_addr
         .write(|w| unsafe { w.bits(buffer.bytes() as *const u8 as u32) });
@@ -363,4 +356,17 @@ fn send_and_clear_buffer(
 
 fn wait_for_dma_done() {
     while DMA_BUSY.load(Ordering::Acquire) != 0 {}
+}
+
+#[panic_handler]
+fn panic(info: &PanicInfo) -> ! {
+    defmt::error!("{}", defmt::Display2Format(info));
+    defmt_panic();
+}
+
+#[defmt::panic_handler]
+fn defmt_panic() -> ! {
+    loop {
+        cortex_m::asm::wfi();
+    }
 }

@@ -12,6 +12,14 @@
         inherit system overlays;
       };
 
+      pythonWithSerial = pkgs.python3.withPackages (ps: with ps; [pyserial]);
+      connect-to-console = pkgs.writeScriptBin "connect-to-console" ''
+        #!/usr/bin/env bash
+
+        sudo echo Connecting to console
+        sudo ${pythonWithSerial}/bin/python3 ${./serial.py} | ~/.cargo/bin/defmt-print -e ./target/thumbv6m-none-eabi/debug/app
+      '';
+
     in
     {
       devShell."${system}" = with pkgs;
@@ -33,7 +41,7 @@
             elf2uf2-rs flip-link python3
 
             # Tools for accessing the serial port (using a logic analyzer)
-            sigrok-cli
+            sigrok-cli connect-to-console
           ];
 
           shellHook = ''

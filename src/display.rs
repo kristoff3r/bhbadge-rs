@@ -1,15 +1,26 @@
 use bhboard as bsp;
-use bsp::hal::spi;
-use bsp::hal::spi::Enabled;
+use bsp::hal::{spi, spi::Enabled};
 use cortex_m::delay::Delay;
-
 use embedded_hal::digital::v2::OutputPin;
 
-use panic_probe as _;
+use crate::color::Pixel;
 
 pub type RawSpi = spi::Spi<Enabled, bsp::pac::SPI0, 8>;
-pub type RawDisplayBufferRow = [u16; 128];
-pub type RawDisplayBuffer = [RawDisplayBufferRow; 160];
+pub type RawDisplayBufferRow = [Pixel; 128];
+
+#[repr(align(4))]
+#[derive(Copy, Clone)]
+pub struct RawDisplayBuffer {
+    rows: [RawDisplayBufferRow; 160],
+}
+
+impl RawDisplayBuffer {
+    pub const fn new() -> Self {
+        Self {
+            rows: [[Pixel::BLACK; 128]; 160],
+        }
+    }
+}
 
 pub struct DisplayBuffer {
     buffer: &'static mut RawDisplayBuffer,
@@ -45,28 +56,28 @@ impl DisplayBuffer {
     }
 
     pub fn row(&self, y: usize) -> &RawDisplayBufferRow {
-        &self.buffer[y]
+        &self.buffer.rows[y]
     }
 
     pub fn row_mut(&mut self, y: usize) -> &mut RawDisplayBufferRow {
-        &mut self.buffer[y]
+        &mut self.buffer.rows[y]
     }
 
-    pub fn pixel_mut(&mut self, y: usize, x: usize) -> &mut u16 {
-        &mut self.buffer[y][x]
+    pub fn pixel_mut(&mut self, y: usize, x: usize) -> &mut Pixel {
+        &mut self.buffer.rows[y][x]
     }
 
-    pub fn pixel(&mut self, y: usize, x: usize) -> u16 {
-        self.buffer[y][x]
+    pub fn pixel(&mut self, y: usize, x: usize) -> Pixel {
+        self.buffer.rows[y][x]
     }
 
     pub fn draw_rect(
         &mut self,
         ys: core::ops::Range<usize>,
         xs: core::ops::Range<usize>,
-        value: u16,
+        value: Pixel,
     ) {
-        for row in &mut self.buffer[ys.start.clamp(0, 160)..ys.end.clamp(0, 160)] {
+        for row in &mut self.buffer.rows[ys.start.clamp(0, 160)..ys.end.clamp(0, 160)] {
             for pixel in &mut row[xs.start.clamp(0, 128)..xs.end.clamp(0, 128)] {
                 *pixel = value;
             }
