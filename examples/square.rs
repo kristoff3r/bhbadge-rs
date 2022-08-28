@@ -120,7 +120,7 @@ fn main() -> ! {
 
     loop {
         set_clear_color(clear_color.into());
-        clear_color.red = clear_color.red.wrapping_add(1);
+        clear_color.r = clear_color.r.wrapping_add(1);
         if counter & 0x1f == 0 {
             defmt::debug!("Frame count: {}", counter);
         }

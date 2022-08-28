@@ -141,7 +141,6 @@ impl<T: Deref<Target = [u8]>, SO: SerialOutput, AS: AudioSpeaker> System<T, SO, 
         while cycles < self.cycles_per_frame {
             cycles += self.step(screen) as u32;
         }
-        screen.update();
         cycles
     }
 

@@ -22,7 +22,6 @@ use crate::{color::Pixel, display::DisplayBuffer};
 
 pub mod color;
 pub mod display;
-pub mod gameboy;
 pub mod spinlocks;
 pub mod usb_serial;
 pub mod usb_serial_defmt;

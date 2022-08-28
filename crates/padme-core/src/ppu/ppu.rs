@@ -457,6 +457,7 @@ impl Ppu {
                 self.pipeline.win_ly = 0;
                 self.pipeline.win_y_triggered = false;
                 self.set_mode(LCD_STATUS_MODE_OAM);
+                screen.update();
                 if is_set!(self.reg_stat, FLAG_STAT_IT_OAM) {
                     it.request(InterruptFlag::Lcdc);
                 }

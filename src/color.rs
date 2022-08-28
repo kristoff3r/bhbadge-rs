@@ -36,9 +36,9 @@ impl Pixel {
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct Color {
-    pub red: u8,
-    pub green: u8,
-    pub blue: u8,
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
 }
 
 impl Color {
@@ -49,15 +49,19 @@ impl Color {
     pub const BLUE: Self = Self::new(0, 0, 0xff);
 
     pub const fn new(red: u8, green: u8, blue: u8) -> Self {
-        Self { red, green, blue }
+        Self {
+            r: red,
+            g: green,
+            b: blue,
+        }
     }
 }
 
 impl From<Color> for Pixel {
     fn from(color: Color) -> Self {
-        let r = ((color.red & 0xF8) as u16) >> 3;
-        let g = ((color.green & 0xFC) as u16) >> 2;
-        let b = ((color.blue & 0xF8) as u16) >> 3;
+        let r = ((color.r & 0xF8) as u16) >> 3;
+        let g = ((color.g & 0xFC) as u16) >> 2;
+        let b = ((color.b & 0xF8) as u16) >> 3;
         let hex: u16 = (r << 11) + (g << 5) + b;
         hex.into()
     }
@@ -69,6 +73,10 @@ impl From<Pixel> for Color {
         let blue = ((hex & 0x1f) as u8) << 3;
         let green = (((hex >> 5) & 0x3f) as u8) << 2;
         let red = (((hex >> 11) & 0x3f) as u8) << 3;
-        Self { red, green, blue }
+        Self {
+            r: red,
+            g: green,
+            b: blue,
+        }
     }
 }

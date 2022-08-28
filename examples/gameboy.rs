@@ -3,13 +3,13 @@
 
 use core::convert::Into;
 
-use bhbadge::{
-    color::Color,
-    display::{DisplayBuffer, DisplayDevice},
-    gameboy, get_current_dma_done, init_dma, send_and_clear_buffer, set_clear_color,
-    wait_for_dma_done, LedAndButtons, CLEAR_CHANNEL, TX_CHANNEL,
-};
+use bhbadge::color::{Color, Pixel};
 use bhbadge::{display::RawDisplayBuffer, usb_serial::UsbManager};
+use bhbadge::{
+    display::{DisplayBuffer, DisplayDevice, RawSpi},
+    get_current_dma_done, init_dma, send_and_clear_buffer, wait_for_dma_done, LedAndButtons,
+    TX_CHANNEL,
+};
 use bhboard as bsp;
 use bsp::{
     entry,
@@ -21,12 +21,15 @@ use bsp::{
         spi,
         watchdog::Watchdog,
     },
+    pac::DMA,
 };
+use cortex_m::delay::Delay;
 use embedded_hal::{
     digital::v2::{InputPin, OutputPin},
     PwmPin,
 };
 use embedded_time::{fixed_point::FixedPoint, rate::Extensions};
+use padme_core::{AudioSpeaker, Screen, SerialOutput};
 
 static mut CORE1_STACK: Stack<4096> = Stack::new();
 fn core1_task() -> ! {
@@ -36,7 +39,7 @@ fn core1_task() -> ! {
 #[entry]
 fn main() -> ! {
     static mut RAW_DISPLAY_BUFFERS: [RawDisplayBuffer; 2] = [RawDisplayBuffer::new(); 2];
-    let mut display_buffers: [DisplayBuffer; 2] = {
+    let display_buffers: [DisplayBuffer; 2] = {
         let [buffer0, buffer1] = RAW_DISPLAY_BUFFERS;
         [DisplayBuffer::new(buffer0), DisplayBuffer::new(buffer1)]
     };
@@ -124,34 +127,32 @@ fn main() -> ! {
     display.display.set_address_window(0, 0, 127, 159);
 
     // Assert chip select pin
-    let (mut spi, mut dc, mut cs) = display.display.spi.release();
+    let (spi, dc, mut cs) = display.display.spi.release();
     cs.set_low().unwrap();
 
     init_dma(&mut pac.RESETS, &mut pac.DMA, false);
     let rom = core::include_bytes!("../assets/pokemon.gb");
     let rom = padme_core::Rom::load(rom.as_slice()).unwrap_or_else(|_| panic!());
 
-    let mut emulator = padme_core::System::new(rom, gameboy::MySerialConsole, gameboy::MySpeaker);
+    let mut emulator = padme_core::System::new(rom, MySerialConsole, MySpeaker);
     // Set the number of frame per seconds
     // This also sets the number of cycles needed per frame given the fixed CPU clock frequency
     emulator.set_frame_rate(60);
 
     let mut counter = 0u16;
 
+    let mut my_display = MyDisplay {
+        dma: pac.DMA,
+        spi,
+        delay,
+        dc,
+        display_buffers,
+        expected: get_current_dma_done(TX_CHANNEL),
+    };
+
     loop {
         defmt::debug!("Step {}", counter);
         counter = counter.wrapping_add(1);
-
-        let expected = !get_current_dma_done(TX_CHANNEL);
-
-        // At this point the DMA takes ownership over display_buffers[1]
-        send_and_clear_buffer(
-            &mut pac.DMA,
-            &mut spi,
-            &mut delay,
-            &mut dc,
-            &display_buffers[1],
-        );
 
         // Simultaniously we update the world and draw to display_buffers[0]
         emulator.set_button(
@@ -167,15 +168,65 @@ fn main() -> ! {
             led_and_buttons.button_b.is_high().unwrap(),
         );
 
-        emulator.update_frame(&mut display_buffers[0]);
+        emulator.update_frame(&mut my_display);
+    }
+}
 
-        // update_input(&mut x, &mut y, &led_and_buttons);
-        // display_buffers[0].draw_rect(y..y + 30, x..x + 30, 0xffff);
+struct MyDisplay {
+    dma: DMA,
+    spi: RawSpi,
+    delay: Delay,
+    dc: bsp::DisplaySpiDc,
+    display_buffers: [DisplayBuffer; 2],
+    expected: bool,
+}
 
+impl Screen for MyDisplay {
+    fn set_pixel(&mut self, pixel: &padme_core::Pixel, x: u8, y: u8) {
+        if y >= 160 || x >= 128 {
+            return;
+        }
+        let ptr = self.display_buffers[0].pixel_mut(y.into(), x.into());
+        *ptr = Color {
+            r: pixel.r,
+            g: pixel.g,
+            b: pixel.b,
+        }
+        .into();
+    }
+
+    fn update(&mut self) {
         // Wait for the dma to be done with display_buffers[1]
-        wait_for_dma_done(TX_CHANNEL, expected);
+        wait_for_dma_done(TX_CHANNEL, self.expected);
 
         // Swap the buffers to be ready for the next loop
-        display_buffers.swap(0, 1);
+        self.display_buffers.swap(0, 1);
+
+        self.expected = !get_current_dma_done(TX_CHANNEL);
+
+        // At this point the DMA takes ownership over display_buffers[1]
+        send_and_clear_buffer(
+            &mut self.dma,
+            &mut self.spi,
+            &mut self.delay,
+            &mut self.dc,
+            &self.display_buffers[1],
+        );
+    }
+}
+
+pub struct MySpeaker;
+
+impl AudioSpeaker for MySpeaker {
+    fn set_samples(&mut self, _left: f32, _right: f32) {
+        // add samples for left and right channels
+    }
+}
+
+pub struct MySerialConsole;
+
+impl SerialOutput for MySerialConsole {
+    fn putchar(&mut self, _ch: u8) {
+        // a byte has been transmitted
     }
 }
