@@ -17,7 +17,7 @@
         #!/usr/bin/env bash
 
         sudo echo Connecting to console
-        sudo ${pythonWithSerial}/bin/python3 ${./serial.py} | ~/.cargo/bin/defmt-print -e ./target/thumbv6m-none-eabi/$1
+        sudo ${pythonWithSerial}/bin/python3 ${./serial.py} | ${self.packages."${system}".defmt-print}/bin/defmt-print -e ./target/thumbv6m-none-eabi/$1
       '';
 
     in
