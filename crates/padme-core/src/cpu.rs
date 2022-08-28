@@ -1,9 +1,3 @@
-use core::ops::Deref;
-
-use log::error;
-#[cfg(debug_assertions)]
-use log::trace;
-
 use crate::bus::Bus;
 use crate::interrupt::InterruptFlag;
 use crate::region::*;
@@ -35,42 +29,6 @@ const DEFAULT_REG_L: u8 = 0x4D;
 
 const DEFAULT_SP: u16 = 0xFFFE;
 const DEFAULT_PC: u16 = 0x0100;
-
-macro_rules! fmt_registers {
-    ($pc: expr, $sp: expr, $af: expr, $bc: expr, $de: expr, $hl: expr) => {
-        format_args!(
-            "PC: 0x{:04X} | SP: 0x{:04X} | \
-                      AF: 0x{:04X} ({}, {}, {}, {}) | BC: 0x{:04X} | \
-                      DE: 0x{:04X} | HL: 0x{:04X}",
-            $pc,
-            $sp,
-            $af,
-            if ($af as u8 & FLAG_ZERO) == 0 {
-                "-"
-            } else {
-                "Z"
-            },
-            if ($af as u8 & FLAG_SUBSTRACT) == 0 {
-                "-"
-            } else {
-                "N"
-            },
-            if ($af as u8 & FLAG_HALF_CARRY) == 0 {
-                "-"
-            } else {
-                "H"
-            },
-            if ($af as u8 & FLAG_CARRY) == 0 {
-                "-"
-            } else {
-                "C"
-            },
-            $bc,
-            $de,
-            $hl
-        )
-    };
-}
 
 pub struct Cpu {
     // Registers
@@ -168,34 +126,53 @@ impl Cpu {
         }
     }
 
+    fn set_all_flags(&mut self, zero: bool, subtract: bool, carry: bool, half_carry: bool) {
+        let mut f = 0;
+        if zero {
+            f |= FLAG_ZERO;
+        }
+        if subtract {
+            f |= FLAG_SUBSTRACT;
+        }
+        if carry {
+            f |= FLAG_CARRY;
+        }
+        if half_carry {
+            f |= FLAG_HALF_CARRY;
+        }
+        self.f = f;
+    }
+
     /// Retrieve next byte
-    fn fetch<T: Deref<Target = [u8]>>(&mut self, bus: &Bus<T>) -> u8 {
+    fn fetch(&mut self, bus: &Bus<'_>) -> u8 {
         let byte = bus.read(self.pc);
         self.pc = self.pc.wrapping_add(1);
         byte
     }
 
     /// Retrieve next 2 bytes as a u16
-    fn fetch16<T: Deref<Target = [u8]>>(&mut self, bus: &Bus<T>) -> u16 {
+    fn fetch16(&mut self, bus: &Bus<'_>) -> u16 {
         let l = self.fetch(bus);
         let h = self.fetch(bus);
         make_u16!(h, l)
     }
 
     /// Put SP + n into HL
-    fn ld_hl_spn<T: Deref<Target = [u8]>>(&mut self, bus: &Bus<T>) {
+    fn ld_hl_spn(&mut self, bus: &Bus<'_>) {
         let n = self.fetch(bus);
         let res = (self.sp as i32).wrapping_add((n as i8) as i32) as u16;
 
-        self.set_flag(FLAG_ZERO, false);
-        self.set_flag(FLAG_SUBSTRACT, false);
-        self.set_flag(FLAG_CARRY, (res & 0xff) < (self.sp & 0xff));
-        self.set_flag(FLAG_HALF_CARRY, (res & 0xf) < (self.sp & 0xf));
+        self.set_all_flags(
+            false,
+            false,
+            (res & 0xff) < (self.sp & 0xff),
+            (res & 0xf) < (self.sp & 0xf),
+        );
         self.set_hl(res);
     }
 
     /// PUSH element on top of the stack
-    fn push<T: Deref<Target = [u8]>>(&mut self, bus: &mut Bus<T>, value: u16) {
+    fn push(&mut self, bus: &mut Bus<'_>, value: u16) {
         self.sp = self.sp.wrapping_sub(1);
         bus.write(self.sp, (value >> 8) as u8);
         self.sp = self.sp.wrapping_sub(1);
@@ -203,7 +180,7 @@ impl Cpu {
     }
 
     /// POP top element of the stack
-    fn pop<T: Deref<Target = [u8]>>(&mut self, bus: &Bus<T>) -> u16 {
+    fn pop(&mut self, bus: &Bus<'_>) -> u16 {
         let l = bus.read(self.sp);
         self.sp = self.sp.wrapping_add(1);
         let h = bus.read(self.sp);
@@ -214,15 +191,14 @@ impl Cpu {
 
     /// Add value to register A with provided carry
     fn addc(&mut self, value: u8, carry: u8) {
-        let r = (self.a as u16) + (value as u16) + (carry as u16);
-        self.set_flag(FLAG_CARRY, r > 0xff);
-        let r = r as u8;
-        self.set_flag(FLAG_ZERO, r == 0);
-        self.set_flag(
-            FLAG_HALF_CARRY,
+        let (r, overflow1) = self.a.overflowing_add(value);
+        let (r, overflow2) = r.overflowing_add(carry);
+        self.set_all_flags(
+            r == 0,
+            false,
+            overflow1 | overflow2,
             (self.a & 0xF) + (value & 0xF) + carry > 0xF,
         );
-        self.set_flag(FLAG_SUBSTRACT, false);
         self.a = r;
     }
 
@@ -238,16 +214,11 @@ impl Cpu {
 
     /// Subtract value to register A with provided carry
     fn subc(&mut self, value: u8, carry: u8) -> u8 {
-        let n = (self.a as u16)
-            .wrapping_sub(value as u16)
-            .wrapping_sub(carry as u16);
+        let (n, overflow1) = self.a.overflowing_sub(value);
+        let (n, overflow2) = n.overflowing_sub(carry);
 
-        self.set_flag(FLAG_CARRY, n > 0xff);
-        let n = n as u8;
-        self.set_flag(FLAG_ZERO, n == 0);
         let hc = ((self.a & 0xF) as i16 - (value & 0xF) as i16 - carry as i16) < 0x0;
-        self.set_flag(FLAG_HALF_CARRY, hc);
-        self.set_flag(FLAG_SUBSTRACT, true);
+        self.set_all_flags(n == 0, true, overflow1 | overflow2, hc);
         n
     }
 
@@ -264,28 +235,19 @@ impl Cpu {
     /// Logical AND value with register A
     fn and(&mut self, value: u8) {
         self.a &= value;
-        self.set_flag(FLAG_ZERO, self.a == 0);
-        self.set_flag(FLAG_SUBSTRACT, false);
-        self.set_flag(FLAG_HALF_CARRY, true);
-        self.set_flag(FLAG_CARRY, false);
+        self.set_all_flags(self.a == 0, false, false, true);
     }
 
     /// Logical OR value with register A
     fn or(&mut self, value: u8) {
         self.a |= value;
-        self.set_flag(FLAG_ZERO, self.a == 0);
-        self.set_flag(FLAG_SUBSTRACT, false);
-        self.set_flag(FLAG_HALF_CARRY, false);
-        self.set_flag(FLAG_CARRY, false);
+        self.set_all_flags(self.a == 0, false, false, false);
     }
 
     /// XOR value with register A
     fn xor(&mut self, value: u8) {
         self.a ^= value;
-        self.set_flag(FLAG_ZERO, self.a == 0);
-        self.set_flag(FLAG_SUBSTRACT, false);
-        self.set_flag(FLAG_HALF_CARRY, false);
-        self.set_flag(FLAG_CARRY, false);
+        self.set_all_flags(self.a == 0, false, false, false);
     }
 
     /// Compare A with value
@@ -327,10 +289,7 @@ impl Cpu {
     /// Swap upper & lower nibbles of value
     fn swap(&mut self, value: u8) -> u8 {
         let r = (value << 4) | (value >> 4);
-        self.set_flag(FLAG_ZERO, r == 0);
-        self.set_flag(FLAG_SUBSTRACT, false);
-        self.set_flag(FLAG_CARRY, false);
-        self.set_flag(FLAG_HALF_CARRY, false);
+        self.set_all_flags(r == 0, false, false, false);
 
         r
     }
@@ -390,10 +349,7 @@ impl Cpu {
         } else {
             n.rotate_left(1)
         };
-        self.set_flag(FLAG_CARRY, (n >> 7) == 0x01);
-        self.set_flag(FLAG_ZERO, set_zero && res == 0);
-        self.set_flag(FLAG_SUBSTRACT, false);
-        self.set_flag(FLAG_HALF_CARRY, false);
+        self.set_all_flags(set_zero && res == 0, false, (n >> 7) == 0x01, false);
         res
     }
 
@@ -405,20 +361,14 @@ impl Cpu {
         } else {
             n.rotate_right(1)
         };
-        self.set_flag(FLAG_CARRY, (n & 0x01) == 0x01);
-        self.set_flag(FLAG_ZERO, set_zero && res == 0);
-        self.set_flag(FLAG_SUBSTRACT, false);
-        self.set_flag(FLAG_HALF_CARRY, false);
+        self.set_all_flags(set_zero && res == 0, false, (n & 0x01) == 0x01, false);
         res
     }
 
     /// Shift n left into carry
     fn sl(&mut self, n: u8) -> u8 {
         let res = n << 1;
-        self.set_flag(FLAG_CARRY, (n >> 7) == 0x01);
-        self.set_flag(FLAG_SUBSTRACT, false);
-        self.set_flag(FLAG_HALF_CARRY, false);
-        self.set_flag(FLAG_ZERO, res == 0);
+        self.set_all_flags(res == 0, false, (n >> 7) == 0x01, false);
         res
     }
 
@@ -429,10 +379,7 @@ impl Cpu {
         } else {
             n >> 1
         };
-        self.set_flag(FLAG_CARRY, (n & 0x01) == 0x01);
-        self.set_flag(FLAG_SUBSTRACT, false);
-        self.set_flag(FLAG_HALF_CARRY, false);
-        self.set_flag(FLAG_ZERO, res == 0);
+        self.set_all_flags(res == 0, false, (n & 0x01) == 0x01, false);
         res
     }
 
@@ -464,18 +411,13 @@ impl Cpu {
     }
 
     /// Save PC and jump to address
-    fn call<T: Deref<Target = [u8]>>(&mut self, bus: &mut Bus<T>, address: u16) {
+    fn call(&mut self, bus: &mut Bus<'_>, address: u16) {
         self.push(bus, self.pc);
         self.pc = address;
     }
 
     /// Save PC and jump to address if condition is true
-    fn call_if<T: Deref<Target = [u8]>>(
-        &mut self,
-        bus: &mut Bus<T>,
-        nn: u16,
-        condition: bool,
-    ) -> u8 {
+    fn call_if(&mut self, bus: &mut Bus<'_>, nn: u16, condition: bool) -> u8 {
         if condition {
             self.call(bus, nn);
             24
@@ -485,7 +427,7 @@ impl Cpu {
     }
 
     /// Return if condition is true
-    fn ret_if<T: Deref<Target = [u8]>>(&mut self, bus: &Bus<T>, condition: bool) -> u8 {
+    fn ret_if(&mut self, bus: &Bus<'_>, condition: bool) -> u8 {
         if condition {
             self.pc = self.pop(bus);
             20
@@ -494,1549 +436,8 @@ impl Cpu {
         }
     }
 
-    #[cfg(debug_assertions)]
-    fn dump_instruction<T: Deref<Target = [u8]>>(&mut self, bus: &Bus<T>, op: u8) {
-        macro_rules! trace_instruction {
-            ($($arg:tt)*) => {
-                trace!("{} | {}", fmt_registers!(self.pc.wrapping_sub(1), self.sp, self.af(),
-                                                 self.bc(), self.de(), self.hl()),
-                           format_args!($($arg)*))
-            };
-        }
-
-        macro_rules! rel_address {
-            ($n: expr) => {
-                ((self.pc as i32 + 1) + (($n as i8) as i32)) as u16
-            };
-        }
-
-        let next = bus.read(self.pc);
-        let next16 = {
-            let l = bus.read(self.pc);
-            let h = bus.read(self.pc.wrapping_add(1));
-            make_u16!(h, l)
-        };
-
-        match op {
-            0x00 => {
-                trace_instruction!("NOP")
-            }
-            0x27 => {
-                trace_instruction!("DAA")
-            }
-            0x2F => {
-                trace_instruction!("CPL")
-            }
-            0x37 => {
-                trace_instruction!("SCF")
-            }
-            0x3F => {
-                trace_instruction!("CCF")
-            }
-            0x76 => {
-                trace_instruction!("HALT")
-            }
-            0x10 => {
-                trace_instruction!("STOP")
-            }
-            0x01 => {
-                trace_instruction!("LD BC, ${:04X}", next16)
-            }
-            0x11 => {
-                trace_instruction!("LD DE, ${:04X}", next16)
-            }
-            0x21 => {
-                trace_instruction!("LD HL, ${:04X}", next16)
-            }
-            0x31 => {
-                trace_instruction!("LD SP, ${:04X}", next16)
-            }
-            0x06 => {
-                trace_instruction!("LD B, ${:02X}", next)
-            }
-            0x0E => {
-                trace_instruction!("LD C, ${:02X}", next)
-            }
-            0x16 => {
-                trace_instruction!("LD D, ${:02X}", next)
-            }
-            0x1E => {
-                trace_instruction!("LD E, ${:02X}", next)
-            }
-            0x26 => {
-                trace_instruction!("LD H, ${:02X}", next)
-            }
-            0x2E => {
-                trace_instruction!("LD L, ${:02X}", next)
-            }
-            0x3E => {
-                trace_instruction!("LD A, ${:02X}", next)
-            }
-            0x40 => {
-                trace_instruction!("LD B, B")
-            }
-            0x41 => {
-                trace_instruction!("LD B, C")
-            }
-            0x42 => {
-                trace_instruction!("LD B, D")
-            }
-            0x43 => {
-                trace_instruction!("LD B, E")
-            }
-            0x44 => {
-                trace_instruction!("LD B, H")
-            }
-            0x45 => {
-                trace_instruction!("LD B, L")
-            }
-            0x46 => {
-                trace_instruction!("LD B, (HL)")
-            }
-            0x47 => {
-                trace_instruction!("LD B, A")
-            }
-            0x48 => {
-                trace_instruction!("LD C, B")
-            }
-            0x49 => {
-                trace_instruction!("LD C, C")
-            }
-            0x4A => {
-                trace_instruction!("LD C, D")
-            }
-            0x4B => {
-                trace_instruction!("LD C, E")
-            }
-            0x4C => {
-                trace_instruction!("LD C, H")
-            }
-            0x4D => {
-                trace_instruction!("LD C, L")
-            }
-            0x4E => {
-                trace_instruction!("LD C, (HL)")
-            }
-            0x4F => {
-                trace_instruction!("LD C, A")
-            }
-            0x50 => {
-                trace_instruction!("LD D, B")
-            }
-            0x51 => {
-                trace_instruction!("LD D, C")
-            }
-            0x52 => {
-                trace_instruction!("LD D, D")
-            }
-            0x53 => {
-                trace_instruction!("LD D, E")
-            }
-            0x54 => {
-                trace_instruction!("LD D, H")
-            }
-            0x55 => {
-                trace_instruction!("LD D, L")
-            }
-            0x56 => {
-                trace_instruction!("LD D, (HL)")
-            }
-            0x57 => {
-                trace_instruction!("LD D, A")
-            }
-            0x58 => {
-                trace_instruction!("LD E, B")
-            }
-            0x59 => {
-                trace_instruction!("LD E, C")
-            }
-            0x5A => {
-                trace_instruction!("LD E, D")
-            }
-            0x5B => {
-                trace_instruction!("LD E, E")
-            }
-            0x5C => {
-                trace_instruction!("LD E, H")
-            }
-            0x5D => {
-                trace_instruction!("LD E, L")
-            }
-            0x5E => {
-                trace_instruction!("LD E, (HL)")
-            }
-            0x5F => {
-                trace_instruction!("LD E, A")
-            }
-            0x60 => {
-                trace_instruction!("LD H, B")
-            }
-            0x61 => {
-                trace_instruction!("LD H, C")
-            }
-            0x62 => {
-                trace_instruction!("LD H, D")
-            }
-            0x63 => {
-                trace_instruction!("LD H, E")
-            }
-            0x64 => {
-                trace_instruction!("LD H, H")
-            }
-            0x65 => {
-                trace_instruction!("LD H, L")
-            }
-            0x66 => {
-                trace_instruction!("LD B, (HL)")
-            }
-            0x67 => {
-                trace_instruction!("LD H, A")
-            }
-            0x68 => {
-                trace_instruction!("LD L, B")
-            }
-            0x69 => {
-                trace_instruction!("LD L, C")
-            }
-            0x6A => {
-                trace_instruction!("LD L, D")
-            }
-            0x6B => {
-                trace_instruction!("LD L, E")
-            }
-            0x6C => {
-                trace_instruction!("LD L, H")
-            }
-            0x6D => {
-                trace_instruction!("LD L, L")
-            }
-            0x6E => {
-                trace_instruction!("LD L, (HL)")
-            }
-            0x6F => {
-                trace_instruction!("LD L, A")
-            }
-            0x78 => {
-                trace_instruction!("LD A, B")
-            }
-            0x79 => {
-                trace_instruction!("LD A, C")
-            }
-            0x7A => {
-                trace_instruction!("LD A, D")
-            }
-            0x7B => {
-                trace_instruction!("LD A, E")
-            }
-            0x7C => {
-                trace_instruction!("LD A, H")
-            }
-            0x7D => {
-                trace_instruction!("LD A, L")
-            }
-            0x7E => {
-                trace_instruction!("LD A, (HL)")
-            }
-            0x7F => {
-                trace_instruction!("LD A, A")
-            }
-            0x2A => {
-                trace_instruction!("LD A, (HL+)")
-            }
-            0x3A => {
-                trace_instruction!("LD A, (HL-)")
-            }
-            0x0A => {
-                trace_instruction!("LD A, (BC)")
-            }
-            0x1A => {
-                trace_instruction!("LD A, (DE)")
-            }
-            0xFA => {
-                trace_instruction!("LD A, (${:04X})", next16)
-            }
-            0xEA => {
-                trace_instruction!("LD (${:04X}), A", next16)
-            }
-            0x36 => {
-                trace_instruction!("LD (HL), ${:02X}", next)
-            }
-            0x70 => {
-                trace_instruction!("LD (HL), B")
-            }
-            0x71 => {
-                trace_instruction!("LD (HL), C")
-            }
-            0x72 => {
-                trace_instruction!("LD (HL), D")
-            }
-            0x73 => {
-                trace_instruction!("LD (HL), E")
-            }
-            0x74 => {
-                trace_instruction!("LD (HL), H")
-            }
-            0x75 => {
-                trace_instruction!("LD (HL), L")
-            }
-            0x77 => {
-                trace_instruction!("LD (HL), A")
-            }
-            0x02 => {
-                trace_instruction!("LD (BC), A")
-            }
-            0x12 => {
-                trace_instruction!("LD (DE), A")
-            }
-            0x22 => {
-                trace_instruction!("LD (HL+), A")
-            }
-            0x32 => {
-                trace_instruction!("LD (HL-), A")
-            }
-            0xE0 => {
-                trace_instruction!("LD ($FF00 + ${:02X}), A", next)
-            }
-            0xF0 => {
-                trace_instruction!("LD A, ($FF00 + ${:02X})", next)
-            }
-            0xE2 => {
-                trace_instruction!("LD ($FF00 + C), A")
-            }
-            0xF2 => {
-                trace_instruction!("LD A, ($FF00 + C)")
-            }
-            0xF8 => {
-                trace_instruction!("LD HL, SP + ${:02X}", next)
-            }
-            0x08 => {
-                trace_instruction!("LD (${:04X}), SP", next16)
-            }
-            0xF9 => {
-                trace_instruction!("LD SP, HL")
-            }
-            0xF5 => {
-                trace_instruction!("PUSH AF")
-            }
-            0xC5 => {
-                trace_instruction!("PUSH BC")
-            }
-            0xD5 => {
-                trace_instruction!("PUSH DE")
-            }
-            0xE5 => {
-                trace_instruction!("PUSH HL")
-            }
-            0xF1 => {
-                trace_instruction!("POP AF")
-            }
-            0xC1 => {
-                trace_instruction!("POP BC")
-            }
-            0xD1 => {
-                trace_instruction!("POP DE")
-            }
-            0xE1 => {
-                trace_instruction!("POP HL")
-            }
-            0xC3 => {
-                trace_instruction!("JP ${:04X}", next16)
-            }
-            0xC2 => {
-                trace_instruction!("JP NZ, ${:04X}", next16)
-            }
-            0xCA => {
-                trace_instruction!("JP Z, ${:04X}", next16)
-            }
-            0xD2 => {
-                trace_instruction!("JP NC, ${:04X}", next16)
-            }
-            0xDA => {
-                trace_instruction!("JP C, ${:04X}", next16)
-            }
-            0xE9 => {
-                trace_instruction!("JP (HL)")
-            }
-            0x18 => {
-                trace_instruction!("JR ${:2X}", rel_address!(next))
-            }
-            0x20 => {
-                trace_instruction!("JR NZ, ${:02X}", rel_address!(next))
-            }
-            0x28 => {
-                trace_instruction!("JR Z, ${:02X}", rel_address!(next))
-            }
-            0x30 => {
-                trace_instruction!("JR NC, ${:02X}", rel_address!(next))
-            }
-            0x38 => {
-                trace_instruction!("JR C, ${:02X}", rel_address!(next))
-            }
-            0xCD => {
-                trace_instruction!("CALL ${:04X}", next16)
-            }
-            0xC4 => {
-                trace_instruction!("CALL NZ, ${:04X}", next16)
-            }
-            0xCC => {
-                trace_instruction!("CALL Z, ${:04X}", next16)
-            }
-            0xD4 => {
-                trace_instruction!("CALL NC, ${:04X}", next16)
-            }
-            0xDC => {
-                trace_instruction!("CALL C, ${:04X}", next16)
-            }
-            0xC7 => {
-                trace_instruction!("RST ${:04X}", 0x00u16)
-            }
-            0xCF => {
-                trace_instruction!("RST ${:04X}", 0x08u16)
-            }
-            0xD7 => {
-                trace_instruction!("RST ${:04X}", 0x10u16)
-            }
-            0xDF => {
-                trace_instruction!("RST ${:04X}", 0x18u16)
-            }
-            0xE7 => {
-                trace_instruction!("RST ${:04X}", 0x20u16)
-            }
-            0xEF => {
-                trace_instruction!("RST ${:04X}", 0x28u16)
-            }
-            0xF7 => {
-                trace_instruction!("RST ${:04X}", 0x30u16)
-            }
-            0xFF => {
-                trace_instruction!("RST ${:04X}", 0x38u16)
-            }
-            0xC9 => {
-                trace_instruction!("RET")
-            }
-            0xC0 => {
-                trace_instruction!("RET NZ")
-            }
-            0xC8 => {
-                trace_instruction!("RET Z")
-            }
-            0xD0 => {
-                trace_instruction!("RET NC")
-            }
-            0xD8 => {
-                trace_instruction!("RET C")
-            }
-            0xD9 => {
-                trace_instruction!("RETI")
-            }
-            0x87 => {
-                trace_instruction!("ADD A, A")
-            }
-            0x80 => {
-                trace_instruction!("ADD A, B")
-            }
-            0x81 => {
-                trace_instruction!("ADD A, C")
-            }
-            0x82 => {
-                trace_instruction!("ADD A, D")
-            }
-            0x83 => {
-                trace_instruction!("ADD A, E")
-            }
-            0x84 => {
-                trace_instruction!("ADD A, H")
-            }
-            0x85 => {
-                trace_instruction!("ADD A, L")
-            }
-            0x86 => {
-                trace_instruction!("ADD A, (HL)")
-            }
-            0xC6 => {
-                trace_instruction!("ADD A, ${:02X}", next)
-            }
-            0x8F => {
-                trace_instruction!("ADC A, A")
-            }
-            0x88 => {
-                trace_instruction!("ADC A, B")
-            }
-            0x89 => {
-                trace_instruction!("ADC A, C")
-            }
-            0x8A => {
-                trace_instruction!("ADC A, D")
-            }
-            0x8B => {
-                trace_instruction!("ADC A, E")
-            }
-            0x8C => {
-                trace_instruction!("ADC A, H")
-            }
-            0x8D => {
-                trace_instruction!("ADC A, L")
-            }
-            0x8E => {
-                trace_instruction!("ADC A, (HL)")
-            }
-            0xCE => {
-                trace_instruction!("ADC A, ${:02X}", next)
-            }
-            0x97 => {
-                trace_instruction!("SUB A, A")
-            }
-            0x90 => {
-                trace_instruction!("SUB A, B")
-            }
-            0x91 => {
-                trace_instruction!("SUB A, C")
-            }
-            0x92 => {
-                trace_instruction!("SUB A, D")
-            }
-            0x93 => {
-                trace_instruction!("SUB A, E")
-            }
-            0x94 => {
-                trace_instruction!("SUB A, H")
-            }
-            0x95 => {
-                trace_instruction!("SUB A, L")
-            }
-            0x96 => {
-                trace_instruction!("SUB A, (HL)")
-            }
-            0xD6 => {
-                trace_instruction!("SUB A, ${:02X}", next)
-            }
-            0x9F => {
-                trace_instruction!("SBC A, A")
-            }
-            0x98 => {
-                trace_instruction!("SBC A, B")
-            }
-            0x99 => {
-                trace_instruction!("SBC A, C")
-            }
-            0x9A => {
-                trace_instruction!("SBC A, D")
-            }
-            0x9B => {
-                trace_instruction!("SBC A, E")
-            }
-            0x9C => {
-                trace_instruction!("SBC A, H")
-            }
-            0x9D => {
-                trace_instruction!("SBC A, L")
-            }
-            0x9E => {
-                trace_instruction!("SBC A, (HL)")
-            }
-            0xDE => {
-                trace_instruction!("SBC A, ${:02X}", next)
-            }
-            0xA7 => {
-                trace_instruction!("AND A")
-            }
-            0xA0 => {
-                trace_instruction!("AND B")
-            }
-            0xA1 => {
-                trace_instruction!("AND C")
-            }
-            0xA2 => {
-                trace_instruction!("AND D")
-            }
-            0xA3 => {
-                trace_instruction!("AND E")
-            }
-            0xA4 => {
-                trace_instruction!("AND H")
-            }
-            0xA5 => {
-                trace_instruction!("AND L")
-            }
-            0xA6 => {
-                trace_instruction!("AND (HL)")
-            }
-            0xE6 => {
-                trace_instruction!("AND ${:02X}", next)
-            }
-            0xB7 => {
-                trace_instruction!("OR A")
-            }
-            0xB0 => {
-                trace_instruction!("OR B")
-            }
-            0xB1 => {
-                trace_instruction!("OR C")
-            }
-            0xB2 => {
-                trace_instruction!("OR D")
-            }
-            0xB3 => {
-                trace_instruction!("OR E")
-            }
-            0xB4 => {
-                trace_instruction!("OR H")
-            }
-            0xB5 => {
-                trace_instruction!("OR L")
-            }
-            0xB6 => {
-                trace_instruction!("OR (HL)")
-            }
-            0xF6 => {
-                trace_instruction!("OR ${:02X}", next)
-            }
-            0xAF => {
-                trace_instruction!("XOR A")
-            }
-            0xA8 => {
-                trace_instruction!("XOR B")
-            }
-            0xA9 => {
-                trace_instruction!("XOR C")
-            }
-            0xAA => {
-                trace_instruction!("XOR D")
-            }
-            0xAB => {
-                trace_instruction!("XOR E")
-            }
-            0xAC => {
-                trace_instruction!("XOR H")
-            }
-            0xAD => {
-                trace_instruction!("XOR L")
-            }
-            0xAE => {
-                trace_instruction!("XOR (HL)")
-            }
-            0xEE => {
-                trace_instruction!("XOR ${:02X}", next)
-            }
-            0xBF => {
-                trace_instruction!("CP A")
-            }
-            0xB8 => {
-                trace_instruction!("CP B")
-            }
-            0xB9 => {
-                trace_instruction!("CP C")
-            }
-            0xBA => {
-                trace_instruction!("CP D")
-            }
-            0xBB => {
-                trace_instruction!("CP E")
-            }
-            0xBC => {
-                trace_instruction!("CP H")
-            }
-            0xBD => {
-                trace_instruction!("CP L")
-            }
-            0xBE => {
-                trace_instruction!("CP (HL)")
-            }
-            0xFE => {
-                trace_instruction!("CP ${:02X}", next)
-            }
-            0x3C => {
-                trace_instruction!("INC A")
-            }
-            0x04 => {
-                trace_instruction!("INC B")
-            }
-            0x0C => {
-                trace_instruction!("INC C")
-            }
-            0x14 => {
-                trace_instruction!("INC D")
-            }
-            0x1C => {
-                trace_instruction!("INC E")
-            }
-            0x24 => {
-                trace_instruction!("INC H")
-            }
-            0x2C => {
-                trace_instruction!("INC L")
-            }
-            0x34 => {
-                trace_instruction!("INC (HL)")
-            }
-            0x3D => {
-                trace_instruction!("DEC A")
-            }
-            0x05 => {
-                trace_instruction!("DEC B")
-            }
-            0x0D => {
-                trace_instruction!("DEC C")
-            }
-            0x15 => {
-                trace_instruction!("DEC D")
-            }
-            0x1D => {
-                trace_instruction!("DEC E")
-            }
-            0x25 => {
-                trace_instruction!("DEC H")
-            }
-            0x2D => {
-                trace_instruction!("DEC L")
-            }
-            0x35 => {
-                trace_instruction!("DEC (HL)")
-            }
-            0x09 => {
-                trace_instruction!("ADD HL, BC")
-            }
-            0x19 => {
-                trace_instruction!("ADD HL, DE")
-            }
-            0x29 => {
-                trace_instruction!("ADD HL, HL")
-            }
-            0x39 => {
-                trace_instruction!("ADD HL, SP")
-            }
-            0xE8 => {
-                trace_instruction!("ADD SP, ${:02X}", next as i8)
-            }
-            0x03 => {
-                trace_instruction!("INC BC")
-            }
-            0x13 => {
-                trace_instruction!("INC DE")
-            }
-            0x23 => {
-                trace_instruction!("INC HL")
-            }
-            0x33 => {
-                trace_instruction!("INC SP")
-            }
-            0x0B => {
-                trace_instruction!("DEC BC")
-            }
-            0x1B => {
-                trace_instruction!("DEC DE")
-            }
-            0x2B => {
-                trace_instruction!("DEC HL")
-            }
-            0x3B => {
-                trace_instruction!("DEC SP")
-            }
-            0xF3 => {
-                trace_instruction!("DI")
-            }
-            0xFB => {
-                trace_instruction!("EI")
-            }
-            0x07 => {
-                trace_instruction!("RLCA")
-            }
-            0x17 => {
-                trace_instruction!("RLA")
-            }
-            0x0F => {
-                trace_instruction!("RRCA")
-            }
-            0x1F => {
-                trace_instruction!("RRA")
-            }
-            0xCB => {
-                let op2 = next;
-
-                match op2 {
-                    0x37 => {
-                        trace_instruction!("SWAP A")
-                    }
-                    0x30 => {
-                        trace_instruction!("SWAP B")
-                    }
-                    0x31 => {
-                        trace_instruction!("SWAP C")
-                    }
-                    0x32 => {
-                        trace_instruction!("SWAP D")
-                    }
-                    0x33 => {
-                        trace_instruction!("SWAP E")
-                    }
-                    0x34 => {
-                        trace_instruction!("SWAP H")
-                    }
-                    0x35 => {
-                        trace_instruction!("SWAP L")
-                    }
-                    0x36 => {
-                        trace_instruction!("SWAP (HL)")
-                    }
-                    0x07 => {
-                        trace_instruction!("RLC A")
-                    }
-                    0x00 => {
-                        trace_instruction!("RLC B")
-                    }
-                    0x01 => {
-                        trace_instruction!("RLC C")
-                    }
-                    0x02 => {
-                        trace_instruction!("RLC D")
-                    }
-                    0x03 => {
-                        trace_instruction!("RLC E")
-                    }
-                    0x04 => {
-                        trace_instruction!("RLC H")
-                    }
-                    0x05 => {
-                        trace_instruction!("RLC L")
-                    }
-                    0x06 => {
-                        trace_instruction!("RLC (HL)")
-                    }
-                    0x17 => {
-                        trace_instruction!("RL A")
-                    }
-                    0x10 => {
-                        trace_instruction!("RL B")
-                    }
-                    0x11 => {
-                        trace_instruction!("RL C")
-                    }
-                    0x12 => {
-                        trace_instruction!("RL D")
-                    }
-                    0x13 => {
-                        trace_instruction!("RL E")
-                    }
-                    0x14 => {
-                        trace_instruction!("RL H")
-                    }
-                    0x15 => {
-                        trace_instruction!("RL L")
-                    }
-                    0x16 => {
-                        trace_instruction!("RL (HL)")
-                    }
-                    0x0F => {
-                        trace_instruction!("RRC A")
-                    }
-                    0x08 => {
-                        trace_instruction!("RRC B")
-                    }
-                    0x09 => {
-                        trace_instruction!("RRC C")
-                    }
-                    0x0A => {
-                        trace_instruction!("RRC D")
-                    }
-                    0x0B => {
-                        trace_instruction!("RRC E")
-                    }
-                    0x0C => {
-                        trace_instruction!("RRC H")
-                    }
-                    0x0D => {
-                        trace_instruction!("RRC L")
-                    }
-                    0x0E => {
-                        trace_instruction!("RRC (HL)")
-                    }
-                    0x1F => {
-                        trace_instruction!("RR A")
-                    }
-                    0x18 => {
-                        trace_instruction!("RR B")
-                    }
-                    0x19 => {
-                        trace_instruction!("RR C")
-                    }
-                    0x1A => {
-                        trace_instruction!("RR D")
-                    }
-                    0x1B => {
-                        trace_instruction!("RR E")
-                    }
-                    0x1C => {
-                        trace_instruction!("RR H")
-                    }
-                    0x1D => {
-                        trace_instruction!("RR L")
-                    }
-                    0x1E => {
-                        trace_instruction!("RR (HL)")
-                    }
-                    0x27 => {
-                        trace_instruction!("SLA A")
-                    }
-                    0x20 => {
-                        trace_instruction!("SLA B")
-                    }
-                    0x21 => {
-                        trace_instruction!("SLA C")
-                    }
-                    0x22 => {
-                        trace_instruction!("SLA D")
-                    }
-                    0x23 => {
-                        trace_instruction!("SLA E")
-                    }
-                    0x24 => {
-                        trace_instruction!("SLA H")
-                    }
-                    0x25 => {
-                        trace_instruction!("SLA L")
-                    }
-                    0x26 => {
-                        trace_instruction!("SLA (HL)")
-                    }
-                    0x2F => {
-                        trace_instruction!("SRA A")
-                    }
-                    0x28 => {
-                        trace_instruction!("SRA B")
-                    }
-                    0x29 => {
-                        trace_instruction!("SRA C")
-                    }
-                    0x2A => {
-                        trace_instruction!("SRA D")
-                    }
-                    0x2B => {
-                        trace_instruction!("SRA E")
-                    }
-                    0x2C => {
-                        trace_instruction!("SRA H")
-                    }
-                    0x2D => {
-                        trace_instruction!("SRA L")
-                    }
-                    0x2E => {
-                        trace_instruction!("SRA (HL)")
-                    }
-                    0x3F => {
-                        trace_instruction!("SRL A")
-                    }
-                    0x38 => {
-                        trace_instruction!("SRL B")
-                    }
-                    0x39 => {
-                        trace_instruction!("SRL C")
-                    }
-                    0x3A => {
-                        trace_instruction!("SRL D")
-                    }
-                    0x3B => {
-                        trace_instruction!("SRL E")
-                    }
-                    0x3C => {
-                        trace_instruction!("SRL H")
-                    }
-                    0x3D => {
-                        trace_instruction!("SRL L")
-                    }
-                    0x3E => {
-                        trace_instruction!("SRL (HL)")
-                    }
-                    0x47 => {
-                        trace_instruction!("BIT 0, A")
-                    }
-                    0x40 => {
-                        trace_instruction!("BIT 0, B")
-                    }
-                    0x41 => {
-                        trace_instruction!("BIT 0, C")
-                    }
-                    0x42 => {
-                        trace_instruction!("BIT 0, D")
-                    }
-                    0x43 => {
-                        trace_instruction!("BIT 0, E")
-                    }
-                    0x44 => {
-                        trace_instruction!("BIT 0, H")
-                    }
-                    0x45 => {
-                        trace_instruction!("BIT 0, L")
-                    }
-                    0x46 => {
-                        trace_instruction!("BIT 0, (HL)")
-                    }
-                    0x4F => {
-                        trace_instruction!("BIT 1, A")
-                    }
-                    0x48 => {
-                        trace_instruction!("BIT 1, B")
-                    }
-                    0x49 => {
-                        trace_instruction!("BIT 1, C")
-                    }
-                    0x4A => {
-                        trace_instruction!("BIT 1, D")
-                    }
-                    0x4B => {
-                        trace_instruction!("BIT 1, E")
-                    }
-                    0x4C => {
-                        trace_instruction!("BIT 1, H")
-                    }
-                    0x4D => {
-                        trace_instruction!("BIT 1, L")
-                    }
-                    0x4E => {
-                        trace_instruction!("BIT 1, (HL)")
-                    }
-                    0x57 => {
-                        trace_instruction!("BIT 2, A")
-                    }
-                    0x50 => {
-                        trace_instruction!("BIT 2, B")
-                    }
-                    0x51 => {
-                        trace_instruction!("BIT 2, C")
-                    }
-                    0x52 => {
-                        trace_instruction!("BIT 2, D")
-                    }
-                    0x53 => {
-                        trace_instruction!("BIT 2, E")
-                    }
-                    0x54 => {
-                        trace_instruction!("BIT 2, H")
-                    }
-                    0x55 => {
-                        trace_instruction!("BIT 2, L")
-                    }
-                    0x56 => {
-                        trace_instruction!("BIT 2, (HL)")
-                    }
-                    0x5F => {
-                        trace_instruction!("BIT 3, A")
-                    }
-                    0x58 => {
-                        trace_instruction!("BIT 3, B")
-                    }
-                    0x59 => {
-                        trace_instruction!("BIT 3, C")
-                    }
-                    0x5A => {
-                        trace_instruction!("BIT 3, D")
-                    }
-                    0x5B => {
-                        trace_instruction!("BIT 3, E")
-                    }
-                    0x5C => {
-                        trace_instruction!("BIT 3, H")
-                    }
-                    0x5D => {
-                        trace_instruction!("BIT 3, L")
-                    }
-                    0x5E => {
-                        trace_instruction!("BIT 3, (HL)")
-                    }
-                    0x67 => {
-                        trace_instruction!("BIT 4, A")
-                    }
-                    0x60 => {
-                        trace_instruction!("BIT 4, B")
-                    }
-                    0x61 => {
-                        trace_instruction!("BIT 4, C")
-                    }
-                    0x62 => {
-                        trace_instruction!("BIT 4, D")
-                    }
-                    0x63 => {
-                        trace_instruction!("BIT 4, E")
-                    }
-                    0x64 => {
-                        trace_instruction!("BIT 4, H")
-                    }
-                    0x65 => {
-                        trace_instruction!("BIT 4, L")
-                    }
-                    0x66 => {
-                        trace_instruction!("BIT 4, (HL)")
-                    }
-                    0x6F => {
-                        trace_instruction!("BIT 5, A")
-                    }
-                    0x68 => {
-                        trace_instruction!("BIT 5, B")
-                    }
-                    0x69 => {
-                        trace_instruction!("BIT 5, C")
-                    }
-                    0x6A => {
-                        trace_instruction!("BIT 5, D")
-                    }
-                    0x6B => {
-                        trace_instruction!("BIT 5, E")
-                    }
-                    0x6C => {
-                        trace_instruction!("BIT 5, H")
-                    }
-                    0x6D => {
-                        trace_instruction!("BIT 5, L")
-                    }
-                    0x6E => {
-                        trace_instruction!("BIT 5, (HL)")
-                    }
-                    0x77 => {
-                        trace_instruction!("BIT 6, A")
-                    }
-                    0x70 => {
-                        trace_instruction!("BIT 6, B")
-                    }
-                    0x71 => {
-                        trace_instruction!("BIT 6, C")
-                    }
-                    0x72 => {
-                        trace_instruction!("BIT 6, D")
-                    }
-                    0x73 => {
-                        trace_instruction!("BIT 6, E")
-                    }
-                    0x74 => {
-                        trace_instruction!("BIT 6, H")
-                    }
-                    0x75 => {
-                        trace_instruction!("BIT 6, L")
-                    }
-                    0x76 => {
-                        trace_instruction!("BIT 6, (HL)")
-                    }
-                    0x7F => {
-                        trace_instruction!("BIT 7, A")
-                    }
-                    0x78 => {
-                        trace_instruction!("BIT 7, B")
-                    }
-                    0x79 => {
-                        trace_instruction!("BIT 7, C")
-                    }
-                    0x7A => {
-                        trace_instruction!("BIT 7, D")
-                    }
-                    0x7B => {
-                        trace_instruction!("BIT 7, E")
-                    }
-                    0x7C => {
-                        trace_instruction!("BIT 7, H")
-                    }
-                    0x7D => {
-                        trace_instruction!("BIT 7, L")
-                    }
-                    0x7E => {
-                        trace_instruction!("BIT 7, (HL)")
-                    }
-                    0x87 => {
-                        trace_instruction!("RES 0, A")
-                    }
-                    0x80 => {
-                        trace_instruction!("RES 0, B")
-                    }
-                    0x81 => {
-                        trace_instruction!("RES 0, C")
-                    }
-                    0x82 => {
-                        trace_instruction!("RES 0, D")
-                    }
-                    0x83 => {
-                        trace_instruction!("RES 0, E")
-                    }
-                    0x84 => {
-                        trace_instruction!("RES 0, H")
-                    }
-                    0x85 => {
-                        trace_instruction!("RES 0, L")
-                    }
-                    0x86 => {
-                        trace_instruction!("RES 0, (HL)")
-                    }
-                    0x8F => {
-                        trace_instruction!("RES 1, A")
-                    }
-                    0x88 => {
-                        trace_instruction!("RES 1, B")
-                    }
-                    0x89 => {
-                        trace_instruction!("RES 1, C")
-                    }
-                    0x8A => {
-                        trace_instruction!("RES 1, D")
-                    }
-                    0x8B => {
-                        trace_instruction!("RES 1, E")
-                    }
-                    0x8C => {
-                        trace_instruction!("RES 1, H")
-                    }
-                    0x8D => {
-                        trace_instruction!("RES 1, L")
-                    }
-                    0x8E => {
-                        trace_instruction!("RES 1, (HL)")
-                    }
-                    0x97 => {
-                        trace_instruction!("RES 2, A")
-                    }
-                    0x90 => {
-                        trace_instruction!("RES 2, B")
-                    }
-                    0x91 => {
-                        trace_instruction!("RES 2, C")
-                    }
-                    0x92 => {
-                        trace_instruction!("RES 2, D")
-                    }
-                    0x93 => {
-                        trace_instruction!("RES 2, E")
-                    }
-                    0x94 => {
-                        trace_instruction!("RES 2, H")
-                    }
-                    0x95 => {
-                        trace_instruction!("RES 2, L")
-                    }
-                    0x96 => {
-                        trace_instruction!("RES 2, (HL)")
-                    }
-                    0x9F => {
-                        trace_instruction!("RES 3, A")
-                    }
-                    0x98 => {
-                        trace_instruction!("RES 3, B")
-                    }
-                    0x99 => {
-                        trace_instruction!("RES 3, C")
-                    }
-                    0x9A => {
-                        trace_instruction!("RES 3, D")
-                    }
-                    0x9B => {
-                        trace_instruction!("RES 3, E")
-                    }
-                    0x9C => {
-                        trace_instruction!("RES 3, H")
-                    }
-                    0x9D => {
-                        trace_instruction!("RES 3, L")
-                    }
-                    0x9E => {
-                        trace_instruction!("RES 3, (HL)")
-                    }
-                    0xA7 => {
-                        trace_instruction!("RES 4, A")
-                    }
-                    0xA0 => {
-                        trace_instruction!("RES 4, B")
-                    }
-                    0xA1 => {
-                        trace_instruction!("RES 4, C")
-                    }
-                    0xA2 => {
-                        trace_instruction!("RES 4, D")
-                    }
-                    0xA3 => {
-                        trace_instruction!("RES 4, E")
-                    }
-                    0xA4 => {
-                        trace_instruction!("RES 4, H")
-                    }
-                    0xA5 => {
-                        trace_instruction!("RES 4, L")
-                    }
-                    0xA6 => {
-                        trace_instruction!("RES 4, (HL)")
-                    }
-                    0xAF => {
-                        trace_instruction!("RES 5, A")
-                    }
-                    0xA8 => {
-                        trace_instruction!("RES 5, B")
-                    }
-                    0xA9 => {
-                        trace_instruction!("RES 5, C")
-                    }
-                    0xAA => {
-                        trace_instruction!("RES 5, D")
-                    }
-                    0xAB => {
-                        trace_instruction!("RES 5, E")
-                    }
-                    0xAC => {
-                        trace_instruction!("RES 5, H")
-                    }
-                    0xAD => {
-                        trace_instruction!("RES 5, L")
-                    }
-                    0xAE => {
-                        trace_instruction!("RES 5, (HL)")
-                    }
-                    0xB7 => {
-                        trace_instruction!("RES 6, A")
-                    }
-                    0xB0 => {
-                        trace_instruction!("RES 6, B")
-                    }
-                    0xB1 => {
-                        trace_instruction!("RES 6, C")
-                    }
-                    0xB2 => {
-                        trace_instruction!("RES 6, D")
-                    }
-                    0xB3 => {
-                        trace_instruction!("RES 6, E")
-                    }
-                    0xB4 => {
-                        trace_instruction!("RES 6, H")
-                    }
-                    0xB5 => {
-                        trace_instruction!("RES 6, L")
-                    }
-                    0xB6 => {
-                        trace_instruction!("RES 6, (HL)")
-                    }
-                    0xBF => {
-                        trace_instruction!("RES 7, A")
-                    }
-                    0xB8 => {
-                        trace_instruction!("RES 7, B")
-                    }
-                    0xB9 => {
-                        trace_instruction!("RES 7, C")
-                    }
-                    0xBA => {
-                        trace_instruction!("RES 7, D")
-                    }
-                    0xBB => {
-                        trace_instruction!("RES 7, E")
-                    }
-                    0xBC => {
-                        trace_instruction!("RES 7, H")
-                    }
-                    0xBD => {
-                        trace_instruction!("RES 7, L")
-                    }
-                    0xBE => {
-                        trace_instruction!("RES 7, (HL)")
-                    }
-                    0xC7 => {
-                        trace_instruction!("SET 0, A")
-                    }
-                    0xC0 => {
-                        trace_instruction!("SET 0, B")
-                    }
-                    0xC1 => {
-                        trace_instruction!("SET 0, C")
-                    }
-                    0xC2 => {
-                        trace_instruction!("SET 0, D")
-                    }
-                    0xC3 => {
-                        trace_instruction!("SET 0, E")
-                    }
-                    0xC4 => {
-                        trace_instruction!("SET 0, H")
-                    }
-                    0xC5 => {
-                        trace_instruction!("SET 0, L")
-                    }
-                    0xC6 => {
-                        trace_instruction!("SET 0, (HL)")
-                    }
-                    0xCF => {
-                        trace_instruction!("SET 1, A")
-                    }
-                    0xC8 => {
-                        trace_instruction!("SET 1, B")
-                    }
-                    0xC9 => {
-                        trace_instruction!("SET 1, C")
-                    }
-                    0xCA => {
-                        trace_instruction!("SET 1, D")
-                    }
-                    0xCB => {
-                        trace_instruction!("SET 1, E")
-                    }
-                    0xCC => {
-                        trace_instruction!("SET 1, H")
-                    }
-                    0xCD => {
-                        trace_instruction!("SET 1, L")
-                    }
-                    0xCE => {
-                        trace_instruction!("SET 1, (HL)")
-                    }
-                    0xD7 => {
-                        trace_instruction!("SET 2, A")
-                    }
-                    0xD0 => {
-                        trace_instruction!("SET 2, B")
-                    }
-                    0xD1 => {
-                        trace_instruction!("SET 2, C")
-                    }
-                    0xD2 => {
-                        trace_instruction!("SET 2, D")
-                    }
-                    0xD3 => {
-                        trace_instruction!("SET 2, E")
-                    }
-                    0xD4 => {
-                        trace_instruction!("SET 2, H")
-                    }
-                    0xD5 => {
-                        trace_instruction!("SET 2, L")
-                    }
-                    0xD6 => {
-                        trace_instruction!("SET 2, (HL)")
-                    }
-                    0xDF => {
-                        trace_instruction!("SET 3, A")
-                    }
-                    0xD8 => {
-                        trace_instruction!("SET 3, B")
-                    }
-                    0xD9 => {
-                        trace_instruction!("SET 3, C")
-                    }
-                    0xDA => {
-                        trace_instruction!("SET 3, D")
-                    }
-                    0xDB => {
-                        trace_instruction!("SET 3, E")
-                    }
-                    0xDC => {
-                        trace_instruction!("SET 3, H")
-                    }
-                    0xDD => {
-                        trace_instruction!("SET 3, L")
-                    }
-                    0xDE => {
-                        trace_instruction!("SET 3, (HL)")
-                    }
-                    0xE7 => {
-                        trace_instruction!("SET 4, A")
-                    }
-                    0xE0 => {
-                        trace_instruction!("SET 4, B")
-                    }
-                    0xE1 => {
-                        trace_instruction!("SET 4, C")
-                    }
-                    0xE2 => {
-                        trace_instruction!("SET 4, D")
-                    }
-                    0xE3 => {
-                        trace_instruction!("SET 4, E")
-                    }
-                    0xE4 => {
-                        trace_instruction!("SET 4, H")
-                    }
-                    0xE5 => {
-                        trace_instruction!("SET 4, L")
-                    }
-                    0xE6 => {
-                        trace_instruction!("SET 4, (HL)")
-                    }
-                    0xEF => {
-                        trace_instruction!("SET 5, A")
-                    }
-                    0xE8 => {
-                        trace_instruction!("SET 5, B")
-                    }
-                    0xE9 => {
-                        trace_instruction!("SET 5, C")
-                    }
-                    0xEA => {
-                        trace_instruction!("SET 5, D")
-                    }
-                    0xEB => {
-                        trace_instruction!("SET 5, E")
-                    }
-                    0xEC => {
-                        trace_instruction!("SET 5, H")
-                    }
-                    0xED => {
-                        trace_instruction!("SET 5, L")
-                    }
-                    0xEE => {
-                        trace_instruction!("SET 5, (HL)")
-                    }
-                    0xF7 => {
-                        trace_instruction!("SET 6, A")
-                    }
-                    0xF0 => {
-                        trace_instruction!("SET 6, B")
-                    }
-                    0xF1 => {
-                        trace_instruction!("SET 6, C")
-                    }
-                    0xF2 => {
-                        trace_instruction!("SET 6, D")
-                    }
-                    0xF3 => {
-                        trace_instruction!("SET 6, E")
-                    }
-                    0xF4 => {
-                        trace_instruction!("SET 6, H")
-                    }
-                    0xF5 => {
-                        trace_instruction!("SET 6, L")
-                    }
-                    0xF6 => {
-                        trace_instruction!("SET 6, (HL)")
-                    }
-                    0xFF => {
-                        trace_instruction!("SET 7, A")
-                    }
-                    0xF8 => {
-                        trace_instruction!("SET 7, B")
-                    }
-                    0xF9 => {
-                        trace_instruction!("SET 7, C")
-                    }
-                    0xFA => {
-                        trace_instruction!("SET 7, D")
-                    }
-                    0xFB => {
-                        trace_instruction!("SET 7, E")
-                    }
-                    0xFC => {
-                        trace_instruction!("SET 7, H")
-                    }
-                    0xFD => {
-                        trace_instruction!("SET 7, L")
-                    }
-                    0xFE => {
-                        trace_instruction!("SET 7, (HL)")
-                    }
-                }
-            }
-            _ => {
-                error!("Unknown op code 0x{:02X}", op)
-            }
-        }
-    }
-
-    #[cfg(not(debug_assertions))]
-    fn dump_instruction<T: Deref<Target = [u8]>>(&self, _bus: &Bus<T>, _op: u8) {}
-
     /// Decode the provided op code and execute the instruction
-    fn decode_execute<T: Deref<Target = [u8]>>(&mut self, bus: &mut Bus<T>, op: u8) -> u8 {
-        self.dump_instruction(bus, op);
-
+    fn decode_execute(&mut self, bus: &mut Bus<'_>, op: u8) -> u8 {
         match op {
             // --- Misc
             // NOP
@@ -2126,188 +527,94 @@ impl Cpu {
                 self.a = self.fetch(bus);
                 8
             }
-            // LD B, r
-            0x40 => 4,
-            0x41 => {
-                self.b = self.c;
-                4
+            0x40..=0x7F => {
+                let mut count = 4;
+                let value = match op & 0x7 {
+                    0 => self.b,
+                    1 => self.c,
+                    2 => self.d,
+                    3 => self.e,
+                    4 => self.h,
+                    5 => self.l,
+                    6 => {
+                        count += 4;
+                        bus.read(self.hl())
+                    }
+                    _ => self.a,
+                };
+                match (op >> 3) & 0x7 {
+                    0 => {
+                        self.b = value;
+                    }
+                    1 => {
+                        self.c = value;
+                    }
+                    2 => {
+                        self.d = value;
+                    }
+                    3 => {
+                        self.e = value;
+                    }
+                    4 => {
+                        self.h = value;
+                    }
+                    5 => {
+                        self.l = value;
+                    }
+                    6 => {
+                        count += 4;
+                        bus.write(self.hl(), value);
+                    }
+                    _ => {
+                        self.a = value;
+                    }
+                }
+                count
             }
-            0x42 => {
-                self.b = self.d;
-                4
+            0x80..=0xBF => {
+                let mut count = 4;
+                let value = match op & 0x7 {
+                    0 => self.b,
+                    1 => self.c,
+                    2 => self.d,
+                    3 => self.e,
+                    4 => self.h,
+                    5 => self.l,
+                    6 => {
+                        count += 4;
+                        bus.read(self.hl())
+                    }
+                    _ => self.a,
+                };
+                match (op >> 3) & 0x7 {
+                    0 => {
+                        self.add(value);
+                    }
+                    1 => {
+                        self.adc(value);
+                    }
+                    2 => {
+                        self.sub(value);
+                    }
+                    3 => {
+                        self.sbc(value);
+                    }
+                    4 => {
+                        self.and(value);
+                    }
+                    5 => {
+                        self.xor(value);
+                    }
+                    6 => {
+                        self.or(value);
+                    }
+                    _ => {
+                        self.cp(value);
+                    }
+                }
+
+                count
             }
-            0x43 => {
-                self.b = self.e;
-                4
-            }
-            0x44 => {
-                self.b = self.h;
-                4
-            }
-            0x45 => {
-                self.b = self.l;
-                4
-            }
-            0x47 => {
-                self.b = self.a;
-                4
-            }
-            // LD C, r
-            0x48 => {
-                self.c = self.b;
-                4
-            }
-            0x49 => 4,
-            0x4A => {
-                self.c = self.d;
-                4
-            }
-            0x4B => {
-                self.c = self.e;
-                4
-            }
-            0x4C => {
-                self.c = self.h;
-                4
-            }
-            0x4D => {
-                self.c = self.l;
-                4
-            }
-            0x4F => {
-                self.c = self.a;
-                4
-            }
-            // LD D, r
-            0x50 => {
-                self.d = self.b;
-                4
-            }
-            0x51 => {
-                self.d = self.c;
-                4
-            }
-            0x52 => 4,
-            0x53 => {
-                self.d = self.e;
-                4
-            }
-            0x54 => {
-                self.d = self.h;
-                4
-            }
-            0x55 => {
-                self.d = self.l;
-                4
-            }
-            0x57 => {
-                self.d = self.a;
-                4
-            }
-            // LD E, r
-            0x58 => {
-                self.e = self.b;
-                4
-            }
-            0x59 => {
-                self.e = self.c;
-                4
-            }
-            0x5A => {
-                self.e = self.d;
-                4
-            }
-            0x5B => 4,
-            0x5C => {
-                self.e = self.h;
-                4
-            }
-            0x5D => {
-                self.e = self.l;
-                4
-            }
-            0x5F => {
-                self.e = self.a;
-                4
-            }
-            // LD H, r
-            0x60 => {
-                self.h = self.b;
-                4
-            }
-            0x61 => {
-                self.h = self.c;
-                4
-            }
-            0x62 => {
-                self.h = self.d;
-                4
-            }
-            0x63 => {
-                self.h = self.e;
-                4
-            }
-            0x64 => 4,
-            0x65 => {
-                self.h = self.l;
-                4
-            }
-            0x67 => {
-                self.h = self.a;
-                4
-            }
-            // LD L, r
-            0x68 => {
-                self.l = self.b;
-                4
-            }
-            0x69 => {
-                self.l = self.c;
-                4
-            }
-            0x6A => {
-                self.l = self.d;
-                4
-            }
-            0x6B => {
-                self.l = self.e;
-                4
-            }
-            0x6C => {
-                self.l = self.h;
-                4
-            }
-            0x6D => 4,
-            0x6F => {
-                self.l = self.a;
-                4
-            }
-            // LD A, r
-            0x78 => {
-                self.a = self.b;
-                4
-            }
-            0x79 => {
-                self.a = self.c;
-                4
-            }
-            0x7A => {
-                self.a = self.d;
-                4
-            }
-            0x7B => {
-                self.a = self.e;
-                4
-            }
-            0x7C => {
-                self.a = self.h;
-                4
-            }
-            0x7D => {
-                self.a = self.l;
-                4
-            }
-            0x7F => 4,
             // LD A, (HL+)
             0x2A => {
                 self.a = bus.read(self.hl());
@@ -2342,69 +649,11 @@ impl Cpu {
                 bus.write(nn, self.a);
                 16
             }
-            // LD r, (HL)
-            0x46 => {
-                self.b = bus.read(self.hl());
-                8
-            }
-            0x4E => {
-                self.c = bus.read(self.hl());
-                8
-            }
-            0x56 => {
-                self.d = bus.read(self.hl());
-                8
-            }
-            0x5E => {
-                self.e = bus.read(self.hl());
-                8
-            }
-            0x66 => {
-                self.h = bus.read(self.hl());
-                8
-            }
-            0x6E => {
-                self.l = bus.read(self.hl());
-                8
-            }
-            0x7E => {
-                self.a = bus.read(self.hl());
-                8
-            }
             // LD (HL), n
             0x36 => {
                 let n = self.fetch(bus);
                 bus.write(self.hl(), n);
                 12
-            }
-            // LD (HL), r
-            0x70 => {
-                bus.write(self.hl(), self.b);
-                8
-            }
-            0x71 => {
-                bus.write(self.hl(), self.c);
-                8
-            }
-            0x72 => {
-                bus.write(self.hl(), self.d);
-                8
-            }
-            0x73 => {
-                bus.write(self.hl(), self.e);
-                8
-            }
-            0x74 => {
-                bus.write(self.hl(), self.h);
-                8
-            }
-            0x75 => {
-                bus.write(self.hl(), self.l);
-                8
-            }
-            0x77 => {
-                bus.write(self.hl(), self.a);
-                8
             }
             // LD (HL+), A
             0x22 => {
@@ -2632,312 +881,48 @@ impl Cpu {
             }
             // --- 8-bit arithmetic
             // ADD A, n
-            0x87 => {
-                self.add(self.a);
-                4
-            }
-            0x80 => {
-                self.add(self.b);
-                4
-            }
-            0x81 => {
-                self.add(self.c);
-                4
-            }
-            0x82 => {
-                self.add(self.d);
-                4
-            }
-            0x83 => {
-                self.add(self.e);
-                4
-            }
-            0x84 => {
-                self.add(self.h);
-                4
-            }
-            0x85 => {
-                self.add(self.l);
-                4
-            }
-            0x86 => {
-                let n = bus.read(self.hl());
-                self.add(n);
-                8
-            }
             0xC6 => {
                 let n = self.fetch(bus);
                 self.add(n);
                 8
             }
             // ADC A, n
-            0x8F => {
-                self.adc(self.a);
-                4
-            }
-            0x88 => {
-                self.adc(self.b);
-                4
-            }
-            0x89 => {
-                self.adc(self.c);
-                4
-            }
-            0x8A => {
-                self.adc(self.d);
-                4
-            }
-            0x8B => {
-                self.adc(self.e);
-                4
-            }
-            0x8C => {
-                self.adc(self.h);
-                4
-            }
-            0x8D => {
-                self.adc(self.l);
-                4
-            }
-            0x8E => {
-                let n = bus.read(self.hl());
-                self.adc(n);
-                8
-            }
             0xCE => {
                 let n = self.fetch(bus);
                 self.adc(n);
                 8
             }
             // SUB A, n
-            0x97 => {
-                self.sub(self.a);
-                4
-            }
-            0x90 => {
-                self.sub(self.b);
-                4
-            }
-            0x91 => {
-                self.sub(self.c);
-                4
-            }
-            0x92 => {
-                self.sub(self.d);
-                4
-            }
-            0x93 => {
-                self.sub(self.e);
-                4
-            }
-            0x94 => {
-                self.sub(self.h);
-                4
-            }
-            0x95 => {
-                self.sub(self.l);
-                4
-            }
-            0x96 => {
-                let n = bus.read(self.hl());
-                self.sub(n);
-                8
-            }
             0xD6 => {
                 let n = self.fetch(bus);
                 self.sub(n);
                 8
             }
             // SBC A, n
-            0x9F => {
-                self.sbc(self.a);
-                4
-            }
-            0x98 => {
-                self.sbc(self.b);
-                4
-            }
-            0x99 => {
-                self.sbc(self.c);
-                4
-            }
-            0x9A => {
-                self.sbc(self.d);
-                4
-            }
-            0x9B => {
-                self.sbc(self.e);
-                4
-            }
-            0x9C => {
-                self.sbc(self.h);
-                4
-            }
-            0x9D => {
-                self.sbc(self.l);
-                4
-            }
-            0x9E => {
-                let n = bus.read(self.hl());
-                self.sbc(n);
-                8
-            }
             0xDE => {
                 let n = self.fetch(bus);
                 self.sbc(n);
                 8
             }
             // AND n
-            0xA7 => {
-                self.and(self.a);
-                4
-            }
-            0xA0 => {
-                self.and(self.b);
-                4
-            }
-            0xA1 => {
-                self.and(self.c);
-                4
-            }
-            0xA2 => {
-                self.and(self.d);
-                4
-            }
-            0xA3 => {
-                self.and(self.e);
-                4
-            }
-            0xA4 => {
-                self.and(self.h);
-                4
-            }
-            0xA5 => {
-                self.and(self.l);
-                4
-            }
-            0xA6 => {
-                let n = bus.read(self.hl());
-                self.and(n);
-                8
-            }
             0xE6 => {
                 let n = self.fetch(bus);
                 self.and(n);
                 8
             }
             // OR n
-            0xB7 => {
-                self.or(self.a);
-                4
-            }
-            0xB0 => {
-                self.or(self.b);
-                4
-            }
-            0xB1 => {
-                self.or(self.c);
-                4
-            }
-            0xB2 => {
-                self.or(self.d);
-                4
-            }
-            0xB3 => {
-                self.or(self.e);
-                4
-            }
-            0xB4 => {
-                self.or(self.h);
-                4
-            }
-            0xB5 => {
-                self.or(self.l);
-                4
-            }
-            0xB6 => {
-                let n = bus.read(self.hl());
-                self.or(n);
-                8
-            }
             0xF6 => {
                 let n = self.fetch(bus);
                 self.or(n);
                 8
             }
             // XOR n
-            0xAF => {
-                self.xor(self.a);
-                4
-            }
-            0xA8 => {
-                self.xor(self.b);
-                4
-            }
-            0xA9 => {
-                self.xor(self.c);
-                4
-            }
-            0xAA => {
-                self.xor(self.d);
-                4
-            }
-            0xAB => {
-                self.xor(self.e);
-                4
-            }
-            0xAC => {
-                self.xor(self.h);
-                4
-            }
-            0xAD => {
-                self.xor(self.l);
-                4
-            }
-            0xAE => {
-                let n = bus.read(self.hl());
-                self.xor(n);
-                8
-            }
             0xEE => {
                 let n = self.fetch(bus);
                 self.xor(n);
                 8
             }
             // CP n
-            0xBF => {
-                self.cp(self.a);
-                4
-            }
-            0xB8 => {
-                self.cp(self.b);
-                4
-            }
-            0xB9 => {
-                self.cp(self.c);
-                4
-            }
-            0xBA => {
-                self.cp(self.d);
-                4
-            }
-            0xBB => {
-                self.cp(self.e);
-                4
-            }
-            0xBC => {
-                self.cp(self.h);
-                4
-            }
-            0xBD => {
-                self.cp(self.l);
-                4
-            }
-            0xBE => {
-                let n = bus.read(self.hl());
-                self.cp(n);
-                8
-            }
             0xFE => {
                 let n = self.fetch(bus);
                 self.cp(n);
@@ -3037,10 +1022,12 @@ impl Cpu {
             0xE8 => {
                 let n = self.fetch(bus);
                 let r = (self.sp as i32).wrapping_add((n as i8) as i32) as u16;
-                self.set_flag(FLAG_ZERO, false);
-                self.set_flag(FLAG_SUBSTRACT, false);
-                self.set_flag(FLAG_CARRY, (r & 0xFF) < (self.sp & 0xFF));
-                self.set_flag(FLAG_HALF_CARRY, (r & 0xF) < (self.sp & 0xF));
+                self.set_all_flags(
+                    false,
+                    false,
+                    (r & 0xFF) < (self.sp & 0xFF),
+                    (r & 0xF) < (self.sp & 0xF),
+                );
                 self.sp = r as u16;
                 16
             }
@@ -4249,19 +2236,7 @@ impl Cpu {
             }
             // Unknown op code
             _ => {
-                error!("Unknown op code 0x{:02X}", op);
-                error!(
-                    "{}",
-                    fmt_registers!(
-                        self.pc.wrapping_sub(1),
-                        self.sp,
-                        self.af(),
-                        self.bc(),
-                        self.de(),
-                        self.hl()
-                    )
-                );
-                4
+                defmt::panic!("Unknown op code 0x{:02X}", op);
             }
         }
     }
@@ -4286,7 +2261,7 @@ impl Cpu {
 
     /// Fetch, decode and execute next instruction
     /// Returns the number of ticks
-    pub fn step<T: Deref<Target = [u8]>>(&mut self, bus: &mut Bus<T>) -> u8 {
+    pub fn step(&mut self, bus: &mut Bus<'_>) -> u8 {
         let ticks = if !self.halted {
             // Fetch instruction
             let op = self.fetch(bus);

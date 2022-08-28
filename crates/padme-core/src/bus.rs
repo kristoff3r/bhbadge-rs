@@ -1,5 +1,3 @@
-use core::ops::Deref;
-
 use crate::apu::Apu;
 use crate::error::{io_error_read, io_error_write};
 use crate::interrupt::InterruptHandler;
@@ -11,7 +9,7 @@ use crate::rom::Rom;
 use crate::serial::Serial;
 use crate::timer::Timer;
 
-pub struct Bus<T: Deref<Target = [u8]>> {
+pub struct Bus<'a> {
     /// Access to io APU ports
     pub apu: Apu,
     /// Access to io joypad ports
@@ -23,7 +21,7 @@ pub struct Bus<T: Deref<Target = [u8]>> {
     /// Access to io timer ports
     pub timer: Timer,
     /// Access to cartridge
-    pub rom: Rom<T>,
+    pub rom: Rom<'a>,
     /// Shareable it handler
     pub it: InterruptHandler,
     /// Working ram
@@ -32,8 +30,8 @@ pub struct Bus<T: Deref<Target = [u8]>> {
     hram: Ram<HRAM_REGION_SIZE>,
 }
 
-impl<T: Deref<Target = [u8]>> Bus<T> {
-    pub fn new(rom: Rom<T>) -> Self {
+impl<'a> Bus<'a> {
+    pub fn new(rom: Rom<'a>) -> Self {
         Self {
             apu: Apu::new(),
             joypad: Joypad::new(),
@@ -47,7 +45,7 @@ impl<T: Deref<Target = [u8]>> Bus<T> {
         }
     }
 
-    pub fn set_rom(&mut self, rom: Rom<T>) {
+    pub fn set_rom(&mut self, rom: Rom<'a>) {
         self.rom = rom;
     }
 
