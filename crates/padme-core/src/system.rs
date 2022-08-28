@@ -1,4 +1,3 @@
-use core::ops::Deref;
 use core::time::Duration;
 
 use crate::bus::Bus;
@@ -7,9 +6,9 @@ use crate::{AudioSpeaker, Button, Error, Rom, Screen, SerialOutput};
 
 pub const DEFAULT_FRAME_RATE: u32 = 60;
 
-pub struct System<T: Deref<Target = [u8]>, SO: SerialOutput, AS: AudioSpeaker> {
+pub struct System<'a, SO: SerialOutput, AS: AudioSpeaker> {
     /// Address bus
-    bus: Bus<T>,
+    bus: Bus<'a>,
     /// To execute instructions
     cpu: Cpu,
     /// A serial output to give to the serial controller
@@ -20,8 +19,8 @@ pub struct System<T: Deref<Target = [u8]>, SO: SerialOutput, AS: AudioSpeaker> {
     cycles_per_frame: u32,
 }
 
-impl<T: Deref<Target = [u8]>, SO: SerialOutput, AS: AudioSpeaker> System<T, SO, AS> {
-    pub fn new(rom: Rom<T>, serial_output: SO, speaker: AS) -> Self {
+impl<'a, SO: SerialOutput, AS: AudioSpeaker> System<'a, SO, AS> {
+    pub fn new(rom: Rom<'a>, serial_output: SO, speaker: AS) -> Self {
         let bus = Bus::new(rom);
         let cpu = Cpu::new();
 
@@ -44,7 +43,7 @@ impl<T: Deref<Target = [u8]>, SO: SerialOutput, AS: AudioSpeaker> System<T, SO, 
     }
 
     /// Replace cartridge with a new buffer
-    pub fn load_bin(&mut self, bytes: T) -> Result<(), Error> {
+    pub fn load_bin(&mut self, bytes: &'a [u8]) -> Result<(), Error> {
         let rom = Rom::load(bytes)?;
 
         self.reset();
@@ -53,7 +52,7 @@ impl<T: Deref<Target = [u8]>, SO: SerialOutput, AS: AudioSpeaker> System<T, SO, 
     }
 
     /// Reload a new rom
-    pub fn load_rom(&mut self, rom: Rom<T>) {
+    pub fn load_rom(&mut self, rom: Rom<'a>) {
         self.bus.set_rom(rom);
         self.reset();
     }
@@ -78,7 +77,7 @@ impl<T: Deref<Target = [u8]>, SO: SerialOutput, AS: AudioSpeaker> System<T, SO, 
     }
 
     /// Retrieve the rom in readonly
-    pub fn rom(&self) -> &Rom<T> {
+    pub fn rom(&self) -> &Rom<'a> {
         &self.bus.rom
     }
 

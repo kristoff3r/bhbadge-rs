@@ -1,6 +1,5 @@
 #[cfg(debug_assertions)]
 use core::fmt;
-use core::ops::Deref;
 use core::str;
 
 use super::mbc::*;
@@ -21,18 +20,18 @@ const HEADER_OLD_LICENSEE_CODE: usize = 0x014B;
 const HEADER_VERSION: usize = 0x014C;
 const HEADER_HEADER_CHECKSUM: usize = 0x014D;
 
-pub struct Rom<T: Deref<Target = [u8]>> {
+pub struct Rom<'a> {
     /// Cartridge data, this is provided by the user depending on their platform
     /// This can be a Vec<u8>, a static array,
     /// Or generally any kind of structure that can be dereferenced to a u8
-    storage: T,
+    storage: &'a [u8],
     /// Support for Mbc0, Mbc1, etc
     mbc_ctrl: Mbc,
 }
 
-impl<T: Deref<Target = [u8]>> Rom<T> {
+impl<'a> Rom<'a> {
     /// Build a rom from a sequence of storage
-    pub fn load(storage: T) -> Result<Self, Error> {
+    pub fn load(storage: &'a [u8]) -> Result<Self, Error> {
         if storage.len() < ROM_REGION_SIZE {
             Err(Error::InvalidRomSize(storage.len()))
         } else {
@@ -394,7 +393,7 @@ impl<T: Deref<Target = [u8]>> Rom<T> {
     }
 }
 
-impl<T: Deref<Target = [u8]>> MemoryRegion for Rom<T> {
+impl<'a> MemoryRegion for Rom<'a> {
     fn read(&self, address: u16) -> u8 {
         self.mbc_ctrl.read(&self.storage, address)
     }
@@ -405,7 +404,7 @@ impl<T: Deref<Target = [u8]>> MemoryRegion for Rom<T> {
 }
 
 #[cfg(debug_assertions)]
-impl<T: Deref<Target = [u8]>> fmt::Debug for Rom<T> {
+impl<'a> fmt::Debug for Rom<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,

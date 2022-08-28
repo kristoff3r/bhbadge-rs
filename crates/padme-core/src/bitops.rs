@@ -1,6 +1,6 @@
 macro_rules! make_u16 {
     ($h: expr, $l: expr) => {
-        (($h as u16) << 8) | $l as u16
+        u16::from_le_bytes([$l, $h])
     };
 }
 
