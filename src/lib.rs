@@ -13,10 +13,7 @@ use bsp::{
 };
 use cortex_m::delay::Delay;
 use display::RawSpi;
-use embedded_hal::{
-    digital::v2::{InputPin, OutputPin},
-    spi::FullDuplex,
-};
+use embedded_hal::{digital::v2::OutputPin, spi::FullDuplex};
 use num_traits::cast::ToPrimitive;
 use rp2040_hal::dma::DREQ_SPI0_TX;
 use st7735::command::Instruction;
@@ -184,20 +181,5 @@ fn panic(info: &PanicInfo) -> ! {
 fn defmt_panic() -> ! {
     loop {
         cortex_m::asm::wfi();
-    }
-}
-
-pub fn update_input(x: &mut usize, y: &mut usize, led_and_buttons: &LedAndButtons) {
-    if led_and_buttons.button_a.is_high().unwrap_or(false) {
-        *y = (*y + 160 + 1) % 160;
-    }
-    if led_and_buttons.button_b.is_high().unwrap_or(false) {
-        *y = (*y + 160 - 1) % 160;
-    }
-    if led_and_buttons.button_x.is_high().unwrap_or(false) {
-        *x = (*x + 128 + 1) % 128;
-    }
-    if led_and_buttons.button_y.is_high().unwrap_or(false) {
-        *x = (*x + 128 - 1) % 128;
     }
 }
