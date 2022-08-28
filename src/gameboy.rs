@@ -15,7 +15,7 @@ impl<'a> Screen for DisplayBuffer {
 pub struct MySpeaker;
 
 impl AudioSpeaker for MySpeaker {
-    fn set_samples(&mut self, left: f32, right: f32) {
+    fn set_samples(&mut self, _left: f32, _right: f32) {
         // add samples for left and right channels
     }
 }
@@ -23,7 +23,7 @@ impl AudioSpeaker for MySpeaker {
 pub struct MySerialConsole;
 
 impl SerialOutput for MySerialConsole {
-    fn putchar(&mut self, ch: u8) {
+    fn putchar(&mut self, _ch: u8) {
         // a byte has been transmitted
     }
 }
