@@ -4,6 +4,7 @@
 Cargo.lock
 target/
 .direnv
+/assets/pokemon.gb
 
 # editor files
 .vscode/*

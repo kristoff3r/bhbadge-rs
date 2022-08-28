@@ -17,14 +17,13 @@ edition = "2018"
 [package.metadata.docs.rs]
 all-features = true
 
-[workspace]
-
-members = [
-    ".",
-    "i2c",
-    "parallel-gpio",
-    "spi",
-]
+# [workspace]
+# members = [
+#     ".",
+#     "i2c",
+#     "parallel-gpio",
+#     "spi",
+# ]
 
 [patch.crates-io]
 display-interface = { version = "0.4", path = "." }
