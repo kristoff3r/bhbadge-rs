@@ -27,12 +27,13 @@ bhboard = { path = "crates/bhboard" }
 padme-core = { path = "crates/padme-core" }
 st7735 = { path = "crates/st7735-rs" }
 
-# Make rust-analyzer
-# [[bin]]
-# name = "app"
-# path = "src/main.rs"
-# test = false
-# bench = false
+[[example]]
+name = "gameboy"
+path = "examples/gameboy.rs"
+
+[[example]]
+name = "square"
+path = "examples/square.rs"
 
 [profile.dev]
 codegen-units = 1
@@ -87,5 +88,5 @@ lto = 'fat'
 opt-level = 3
 
 [patch.crates-io]
-display-interface = { version = "0.4", path = "crates/display-interface" }
+display-interface = { path = "crates/display-interface" }
 display-interface-spi = { path = "crates/display-interface/spi" }
