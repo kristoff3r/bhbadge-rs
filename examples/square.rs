@@ -4,9 +4,9 @@
 use bhbadge::{
     color::Color,
     display::{DisplayBuffer, DisplayDevice, RawDisplayBuffer},
-    init_dma, send_and_clear_buffer, set_clear_color,
+    get_current_dma_done, init_dma, send_and_clear_buffer, set_clear_color,
     usb_serial::UsbManager,
-    wait_for_dma_done, LedAndButtons,
+    wait_for_dma_done, LedAndButtons, CLEAR_CHANNEL,
 };
 
 use bhboard as bsp;
@@ -126,6 +126,7 @@ fn main() -> ! {
         }
         counter = counter.wrapping_add(1);
 
+        let expected = !get_current_dma_done(CLEAR_CHANNEL);
         // At this point the DMA takes ownership over display_buffers[1]
         send_and_clear_buffer(
             &mut pac.DMA,
@@ -140,7 +141,7 @@ fn main() -> ! {
         display_buffers[0].draw_rect(y..y + 30, x..x + 30, Color::BLUE.into());
 
         // Wait for the dma to be done with display_buffers[1]
-        wait_for_dma_done();
+        wait_for_dma_done(CLEAR_CHANNEL, expected);
 
         // Swap the buffers to be ready for the next loop
         display_buffers.swap(0, 1);

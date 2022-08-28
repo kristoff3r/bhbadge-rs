@@ -3,12 +3,12 @@
 
 use core::{
     panic::PanicInfo,
-    sync::atomic::{AtomicU32, AtomicU8, Ordering},
+    sync::atomic::{AtomicU16, AtomicU32, AtomicU8, Ordering},
 };
 
 use bhboard as bsp;
 use bsp::{
-    pac::{DMA, RESETS},
+    pac::{self, interrupt, DMA, RESETS},
     ButtonA, ButtonB, ButtonX, ButtonY, Led,
 };
 use cortex_m::delay::Delay;
@@ -27,11 +27,8 @@ pub mod spinlocks;
 pub mod usb_serial;
 pub mod usb_serial_defmt;
 
-const TX_CHANNEL: u8 = 0;
-const CLEAR_CHANNEL: u8 = 1;
-// TODO: Wasting an entire channel to check for when the DMA done is a bad solution.
-// We should use interrupts instead.
-const MARK_NOT_BUSY_CHANNEL: u8 = 2;
+pub const TX_CHANNEL: u8 = 0;
+pub const CLEAR_CHANNEL: u8 = 1;
 static DMA_BUSY: AtomicU8 = AtomicU8::new(0);
 static CLEAR_COLOR: AtomicU32 = AtomicU32::new(0);
 
@@ -58,7 +55,6 @@ pub fn init_dma(resets: &mut RESETS, dma: &mut DMA) {
     const SSPDR_OFFSET: u32 = 0x008;
     let tx_channel = &dma.ch[TX_CHANNEL as usize];
     let clear_channel = &dma.ch[CLEAR_CHANNEL as usize];
-    let mark_not_busy_channel = &dma.ch[MARK_NOT_BUSY_CHANNEL as usize];
 
     tx_channel
         .ch_write_addr
@@ -104,39 +100,18 @@ pub fn init_dma(resets: &mut RESETS, dma: &mut DMA) {
         w.sniff_en().clear_bit();
         unsafe {
             w.ring_size().bits(0);
-            w.chain_to().bits(MARK_NOT_BUSY_CHANNEL);
+            w.chain_to().bits(CLEAR_CHANNEL);
         }
         w.en().set_bit();
         w
     });
 
-    static ZERO: &'static u8 = &0;
-    mark_not_busy_channel
-        .ch_al1_read_addr
-        .write(|w| unsafe { w.bits(ZERO as *const u8 as u32) });
-    mark_not_busy_channel
-        .ch_write_addr
-        .write(|w| unsafe { w.bits(&DMA_BUSY as *const AtomicU8 as u32) });
-    mark_not_busy_channel
-        .ch_trans_count
-        .write(|w| unsafe { w.bits(1) });
-    mark_not_busy_channel.ch_al1_ctrl.write(|w| {
-        w.incr_read().clear_bit();
-        w.incr_write().clear_bit();
-        w.high_priority().clear_bit();
-        w.data_size().size_byte();
-        w.treq_sel().permanent();
-        w.bswap().clear_bit();
-        w.ring_sel().clear_bit();
-        w.irq_quiet().clear_bit();
-        w.sniff_en().clear_bit();
-        unsafe {
-            w.ring_size().bits(0);
-            w.chain_to().bits(MARK_NOT_BUSY_CHANNEL);
-        }
-        w.en().set_bit();
-        w
-    });
+    dma.inte0
+        .modify(|r, w| unsafe { w.inte0().bits(r.inte0().bits() | (1 << CLEAR_CHANNEL)) });
+
+    unsafe {
+        pac::NVIC::unmask(pac::Interrupt::DMA_IRQ_0);
+    }
 }
 
 pub fn send_and_clear_buffer(
@@ -167,8 +142,20 @@ pub fn send_and_clear_buffer(
         .write(|w| unsafe { w.bits(buffer.bytes() as *const u8 as u32) });
 }
 
-pub fn wait_for_dma_done() {
-    while DMA_BUSY.load(Ordering::Acquire) != 0 {}
+pub fn get_current_dma_done(channel: u8) -> bool {
+    let bits = DMA_DONE.load(Ordering::Acquire);
+    let masked = bits & (1 << channel);
+    masked != 0
+}
+
+pub fn wait_for_dma_done(channel: u8, expected: bool) {
+    loop {
+        if get_current_dma_done(channel) == expected {
+            break;
+        } else {
+            cortex_m::asm::wfi()
+        }
+    }
 }
 
 #[panic_handler]
@@ -182,4 +169,17 @@ fn defmt_panic() -> ! {
     loop {
         cortex_m::asm::wfi();
     }
+}
+
+static DMA_DONE: AtomicU16 = AtomicU16::new(0);
+
+#[interrupt]
+fn DMA_IRQ_0() {
+    let dma = unsafe { &*DMA::PTR };
+    dma.ints0.modify(|r, w| {
+        let bits = r.ints0().bits();
+        let bits = bits ^ DMA_DONE.load(Ordering::Relaxed);
+        DMA_DONE.store(bits, Ordering::Relaxed);
+        w
+    })
 }
