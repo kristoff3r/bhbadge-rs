@@ -1,9 +1,9 @@
 use core::cmp::Ordering;
 
-const FLAG_BGWIN_PRIO: u8               = 0b10000000;
-const FLAG_Y_FLIP: u8                   = 0b01000000;
-const FLAG_X_FLIP: u8                   = 0b00100000;
-const FLAG_PALETTE_NUMBER: u8           = 0b00010000;
+const FLAG_BGWIN_PRIO: u8 = 0b10000000;
+const FLAG_Y_FLIP: u8 = 0b01000000;
+const FLAG_X_FLIP: u8 = 0b00100000;
+const FLAG_PALETTE_NUMBER: u8 = 0b00010000;
 
 #[derive(Clone, Copy, Eq)]
 pub struct Sprite {
@@ -19,11 +19,21 @@ pub struct Sprite {
 
 impl Sprite {
     pub fn new(x: u8, y: u8, tile_index: u8, attrs: u8) -> Self {
-        Self { x, y, tile_index, attrs }
+        Self {
+            x,
+            y,
+            tile_index,
+            attrs,
+        }
     }
 
     pub fn default() -> Self {
-        Self { x: 0, y: 0, tile_index: 0, attrs: 0 }
+        Self {
+            x: 0,
+            y: 0,
+            tile_index: 0,
+            attrs: 0,
+        }
     }
 
     #[inline]

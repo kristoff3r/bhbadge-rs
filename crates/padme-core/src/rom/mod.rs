@@ -1,6 +1,6 @@
-mod rom;
 mod header;
 mod mbc;
+mod rom;
 
-pub use header::{CgbMode, CartridgeType, Licensee};
+pub use header::{CartridgeType, CgbMode, Licensee};
 pub use rom::*;

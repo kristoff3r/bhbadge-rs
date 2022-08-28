@@ -3,25 +3,25 @@ use core::fmt;
 use core::ops::Deref;
 use core::str;
 
+use super::mbc::*;
+use super::{CartridgeType, CgbMode, Licensee};
 use crate::region::*;
 use crate::Error;
-use super::{CgbMode, CartridgeType, Licensee};
-use super::mbc::*;
 
-const HEADER_TITLE_START: usize         = 0x0134;
-const HEADER_TITLE_END: usize           = 0x0143;
-const HEADER_CGB_FLAG: usize            = 0x0143;
-const HEADER_NEW_LICENSEE_CODE: usize   = 0x0144;
-const HEADER_SGB_FLAG: usize            = 0x0146;
-const HEADER_CARTRIDGE_TYPE: usize      = 0x0147;
-const HEADER_ROM_SIZE: usize            = 0x0148;
-const HEADER_RAM_SIZE: usize            = 0x0149;
-const HEADER_DESTINATION_CODE: usize    = 0x014A;
-const HEADER_OLD_LICENSEE_CODE: usize   = 0x014B;
-const HEADER_VERSION: usize             = 0x014C;
-const HEADER_HEADER_CHECKSUM: usize     = 0x014D;
+const HEADER_TITLE_START: usize = 0x0134;
+const HEADER_TITLE_END: usize = 0x0143;
+const HEADER_CGB_FLAG: usize = 0x0143;
+const HEADER_NEW_LICENSEE_CODE: usize = 0x0144;
+const HEADER_SGB_FLAG: usize = 0x0146;
+const HEADER_CARTRIDGE_TYPE: usize = 0x0147;
+const HEADER_ROM_SIZE: usize = 0x0148;
+const HEADER_RAM_SIZE: usize = 0x0149;
+const HEADER_DESTINATION_CODE: usize = 0x014A;
+const HEADER_OLD_LICENSEE_CODE: usize = 0x014B;
+const HEADER_VERSION: usize = 0x014C;
+const HEADER_HEADER_CHECKSUM: usize = 0x014D;
 
-pub struct Rom<T: Deref<Target=[u8]>> {
+pub struct Rom<T: Deref<Target = [u8]>> {
     /// Cartridge data, this is provided by the user depending on their platform
     /// This can be a Vec<u8>, a static array,
     /// Or generally any kind of structure that can be dereferenced to a u8
@@ -30,7 +30,7 @@ pub struct Rom<T: Deref<Target=[u8]>> {
     mbc_ctrl: Mbc,
 }
 
-impl<T: Deref<Target=[u8]>> Rom<T> {
+impl<T: Deref<Target = [u8]>> Rom<T> {
     /// Build a rom from a sequence of storage
     pub fn load(storage: T) -> Result<Self, Error> {
         if storage.len() < ROM_REGION_SIZE {
@@ -46,14 +46,14 @@ impl<T: Deref<Target=[u8]>> Rom<T> {
             // which would allow setting the mbc controller before creating the rom instance
             rom.mbc_ctrl = match rom.cartridge_type() {
                 CartridgeType::RomOnly => Mbc::from(Mbc0),
-                CartridgeType::Mbc1 |
-                CartridgeType::Mbc1Ram |
-                CartridgeType::Mbc1RamBattery => Mbc::from(Mbc1::new()),
-                CartridgeType::Mbc3 |
-                CartridgeType::Mbc3Ram |
-                CartridgeType::Mbc3RamBattery |
-                CartridgeType::Mbc3TimerBattery |
-                CartridgeType::Mbc3TimerRamBattery => Mbc::from(Mbc3::new()),
+                CartridgeType::Mbc1 | CartridgeType::Mbc1Ram | CartridgeType::Mbc1RamBattery => {
+                    Mbc::from(Mbc1::new())
+                }
+                CartridgeType::Mbc3
+                | CartridgeType::Mbc3Ram
+                | CartridgeType::Mbc3RamBattery
+                | CartridgeType::Mbc3TimerBattery
+                | CartridgeType::Mbc3TimerRamBattery => Mbc::from(Mbc3::new()),
                 _ => unimplemented!(),
             };
 
@@ -71,9 +71,7 @@ impl<T: Deref<Target=[u8]>> Rom<T> {
         let title_part = &self.storage[HEADER_TITLE_START..=HEADER_TITLE_END];
         for (i, &byte) in title_part.iter().enumerate() {
             if byte == 0x00 {
-                return str::from_utf8(
-                    &self.storage[HEADER_TITLE_START..(HEADER_TITLE_START + i)]
-                );
+                return str::from_utf8(&self.storage[HEADER_TITLE_START..(HEADER_TITLE_START + i)]);
             }
         }
 
@@ -390,13 +388,13 @@ impl<T: Deref<Target=[u8]>> Rom<T> {
                     0x4134 => Licensee::Konami,
                     _ => Licensee::Unknown,
                 }
-            },
+            }
             _ => Licensee::Unknown,
         }
     }
 }
 
-impl<T: Deref<Target=[u8]>> MemoryRegion for Rom<T> {
+impl<T: Deref<Target = [u8]>> MemoryRegion for Rom<T> {
     fn read(&self, address: u16) -> u8 {
         self.mbc_ctrl.read(&self.storage, address)
     }
@@ -407,9 +405,11 @@ impl<T: Deref<Target=[u8]>> MemoryRegion for Rom<T> {
 }
 
 #[cfg(debug_assertions)]
-impl<T: Deref<Target=[u8]>> fmt::Debug for Rom<T> {
+impl<T: Deref<Target = [u8]>> fmt::Debug for Rom<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "ROM \n\
+        write!(
+            f,
+            "ROM \n\
                    ---\n\
                    Cartridge type: {:?}\n\
                    Licensee: {:?}\n\
@@ -418,9 +418,15 @@ impl<T: Deref<Target=[u8]>> fmt::Debug for Rom<T> {
                    Version: {}\n\
                    Checksum: {}\n\
                    ",
-               self.cartridge_type(), self.licensee(), self.size(), self.ram_size(),
-               self.cgb_mode(), self.is_sgb(), self.is_jp(), self.version(),
-               self.verify_header_checksum(),
+            self.cartridge_type(),
+            self.licensee(),
+            self.size(),
+            self.ram_size(),
+            self.cgb_mode(),
+            self.is_sgb(),
+            self.is_jp(),
+            self.version(),
+            self.verify_header_checksum(),
         )
     }
 }

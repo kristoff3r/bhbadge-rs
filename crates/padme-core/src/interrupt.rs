@@ -3,17 +3,17 @@ use crate::region::*;
 //
 // DMG default registers values
 //
-const DEFAULT_REG_DMG_IF: u8    = 0xE1;
-const DEFAULT_REG_DMG_IE: u8    = 0x00;
+const DEFAULT_REG_DMG_IF: u8 = 0xE1;
+const DEFAULT_REG_DMG_IE: u8 = 0x00;
 
 #[repr(u8)]
 #[derive(Clone, Copy)]
 pub enum InterruptFlag {
-    Vblank        = 0b00000001,
-    Lcdc          = 0b00000010,
+    Vblank = 0b00000001,
+    Lcdc = 0b00000010,
     TimerOverflow = 0b00000100,
-    Serial        = 0b00001000,
-    Joypad        = 0b00010000,
+    Serial = 0b00001000,
+    Joypad = 0b00010000,
 }
 
 pub struct InterruptHandler {

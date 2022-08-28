@@ -6,5 +6,5 @@ mod sprite;
 use pipeline::{FetchState, Pipeline};
 use sprite::Sprite;
 
-pub use ppu::*;
 pub use pixel::Pixel;
+pub use ppu::*;

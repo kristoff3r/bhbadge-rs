@@ -3,26 +3,26 @@ use enum_dispatch::enum_dispatch;
 use crate::error::{io_error_read, io_error_write};
 use crate::region::*;
 
-const DEFAULT_RAM_BANK: u8              = 0x00;
-const DEFAULT_ROM_BANK: u8              = 0x01;
+const DEFAULT_RAM_BANK: u8 = 0x00;
+const DEFAULT_ROM_BANK: u8 = 0x01;
 
-const RAM_ENABLE_START: u16             = 0x0000;
-const RAM_ENABLE_END: u16               = 0x1FFF;
-const ROM_BANK_SEL_START: u16           = 0x2000;
-const ROM_BANK_SEL_END: u16             = 0x3FFF;
-const RAM_BANK_SEL_START: u16           = 0x4000;
-const RAM_BANK_SEL_END: u16             = 0x5FFF;
-const BANK_MODE_START: u16              = 0x6000;
-const BANK_MODE_END: u16                = 0x7FFF;
+const RAM_ENABLE_START: u16 = 0x0000;
+const RAM_ENABLE_END: u16 = 0x1FFF;
+const ROM_BANK_SEL_START: u16 = 0x2000;
+const ROM_BANK_SEL_END: u16 = 0x3FFF;
+const RAM_BANK_SEL_START: u16 = 0x4000;
+const RAM_BANK_SEL_END: u16 = 0x5FFF;
+const BANK_MODE_START: u16 = 0x6000;
+const BANK_MODE_END: u16 = 0x7FFF;
 
-const ERAM_SIZE: usize                  = 32 * 1024;
-const ROM_REGION_BANK0_START: u16       = ROM_REGION_START;
-const ROM_REGION_BANK0_END: u16         = 0x3FFF;
-const ROM_REGION_BANKN_START: u16       = 0x4000;
-const ROM_REGION_BANKN_END: u16         = ROM_REGION_END;
+const ERAM_SIZE: usize = 32 * 1024;
+const ROM_REGION_BANK0_START: u16 = ROM_REGION_START;
+const ROM_REGION_BANK0_END: u16 = 0x3FFF;
+const ROM_REGION_BANKN_START: u16 = 0x4000;
+const ROM_REGION_BANKN_END: u16 = ROM_REGION_END;
 
-const ROM_BANK_SIZE: usize              = (ROM_REGION_BANKN_END - ROM_REGION_BANKN_START + 1) as usize;
-const RAM_BANK_SIZE: usize              = ERAM_REGION_SIZE;
+const ROM_BANK_SIZE: usize = (ROM_REGION_BANKN_END - ROM_REGION_BANKN_START + 1) as usize;
+const RAM_BANK_SIZE: usize = ERAM_REGION_SIZE;
 
 #[enum_dispatch]
 pub trait MbcController {
@@ -45,7 +45,7 @@ impl MbcController for Mbc0 {
             ROM_REGION_START..=ROM_REGION_END => {
                 // We know storage.len() >= ROM_REGION_END (32K)
                 storage[(address - ROM_REGION_START) as usize]
-            },
+            }
             _ => {
                 io_error_read(address);
                 0xFF
@@ -85,7 +85,7 @@ impl Mbc1 {
     fn set_rom_bank(&mut self, bank: u8) {
         self.rom_bank = match bank {
             0x00 | 0x20 | 0x40 | 0x60 => bank + 1,
-            _ => bank
+            _ => bank,
         }
     }
 }
@@ -98,7 +98,7 @@ impl MbcController for Mbc1 {
                 let offset = address - ROM_REGION_BANKN_START;
                 let idx = offset as usize + (ROM_BANK_SIZE * self.rom_bank as usize);
                 storage[idx]
-            },
+            }
             ERAM_REGION_START..=ERAM_REGION_END => {
                 if self.ram_enabled {
                     let offset = address - ERAM_REGION_START;
@@ -118,7 +118,7 @@ impl MbcController for Mbc1 {
             ROM_BANK_SEL_START..=ROM_BANK_SEL_END => {
                 let bank = value & 0x1F;
                 self.set_rom_bank((self.rom_bank & 0xE0) | bank);
-            },
+            }
             RAM_BANK_SEL_START..=RAM_BANK_SEL_END => {
                 let bank = value & 0x03;
                 if self.ram_bank_mode {
@@ -126,7 +126,7 @@ impl MbcController for Mbc1 {
                 } else {
                     self.set_rom_bank(bank << 5 | self.rom_bank);
                 }
-            },
+            }
             BANK_MODE_START..=BANK_MODE_END => self.ram_bank_mode = is_set!(value, 0x01),
             ERAM_REGION_START..=ERAM_REGION_END => {
                 if self.ram_enabled {
@@ -134,7 +134,7 @@ impl MbcController for Mbc1 {
                     let idx = offset as usize + (RAM_BANK_SIZE * self.ram_bank as usize);
                     self.eram[idx] = value;
                 }
-            },
+            }
             _ => io_error_write(address),
         }
     }
@@ -170,7 +170,7 @@ impl MbcController for Mbc3 {
                 let offset = address - ROM_REGION_BANKN_START;
                 let idx = offset as usize + (ROM_BANK_SIZE * self.rom_bank as usize);
                 storage[idx]
-            },
+            }
             ERAM_REGION_START..=ERAM_REGION_END => {
                 if self.ram_timer_enabled {
                     if self.rtc_mode {
@@ -200,7 +200,7 @@ impl MbcController for Mbc3 {
                 } else if (0x08..=0x0C).contains(&value) {
                     self.rtc_mode = true;
                 }
-            },
+            }
             ERAM_REGION_START..=ERAM_REGION_END => {
                 if self.ram_timer_enabled {
                     if self.rtc_mode {
@@ -211,7 +211,7 @@ impl MbcController for Mbc3 {
                         self.eram[idx] = value;
                     }
                 }
-            },
+            }
             _ => io_error_write(address),
         }
     }

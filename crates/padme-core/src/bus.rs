@@ -11,7 +11,7 @@ use crate::rom::Rom;
 use crate::serial::Serial;
 use crate::timer::Timer;
 
-pub struct Bus<T: Deref<Target=[u8]>> {
+pub struct Bus<T: Deref<Target = [u8]>> {
     /// Access to io APU ports
     pub apu: Apu,
     /// Access to io joypad ports
@@ -32,7 +32,7 @@ pub struct Bus<T: Deref<Target=[u8]>> {
     hram: Ram<HRAM_REGION_SIZE>,
 }
 
-impl<T: Deref<Target=[u8]>> Bus<T> {
+impl<T: Deref<Target = [u8]>> Bus<T> {
     pub fn new(rom: Rom<T>) -> Self {
         Self {
             apu: Apu::new(),
@@ -59,7 +59,7 @@ impl<T: Deref<Target=[u8]>> Bus<T> {
             WRAM_REGION_START..=WRAM_REGION_END => self.wram.read(address - WRAM_REGION_START),
             ECHORAM_REGION_START..=ECHORAM_REGION_END => {
                 self.wram.read(address - ECHORAM_REGION_START)
-            },
+            }
             OAM_REGION_START..=OAM_REGION_END => self.ppu.read(address),
             // I/O Registers
             IO_JOYPAD_REGION => self.joypad.read(address),
@@ -72,7 +72,7 @@ impl<T: Deref<Target=[u8]>> Bus<T> {
             _ => {
                 io_error_read(address);
                 0xFF
-            },
+            }
         }
     }
 
@@ -83,10 +83,10 @@ impl<T: Deref<Target=[u8]>> Bus<T> {
             ERAM_REGION_START..=ERAM_REGION_END => self.rom.write(address, value),
             WRAM_REGION_START..=WRAM_REGION_END => {
                 self.wram.write(address - WRAM_REGION_START, value)
-            },
+            }
             ECHORAM_REGION_START..=ECHORAM_REGION_END => {
                 self.wram.write(address - ECHORAM_REGION_START, value)
-            },
+            }
             OAM_REGION_START..=OAM_REGION_END => self.ppu.write(address, value),
             // I/O Registers
             IO_JOYPAD_REGION => self.joypad.write(address, value),
@@ -96,7 +96,7 @@ impl<T: Deref<Target=[u8]>> Bus<T> {
             IO_PPU_REGION_START..=IO_PPU_REGION_END => self.ppu.write(address, value),
             HRAM_REGION_START..=HRAM_REGION_END => {
                 self.hram.write(address - HRAM_REGION_START, value)
-            },
+            }
             REG_IF_ADDR | REG_IE_ADDR => self.it.write(address, value),
             _ => io_error_write(address),
         }

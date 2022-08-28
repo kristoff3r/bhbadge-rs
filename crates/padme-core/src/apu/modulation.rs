@@ -9,7 +9,7 @@ const WAVE_DUTY_PATTERNS: [[u8; 8]; 4] = [
     // 50% (____----____----____----)
     [1, 0, 0, 0, 0, 1, 1, 1],
     // 75% (______--______--______--)
-    [0, 1, 1, 1, 1, 1, 1, 0]
+    [0, 1, 1, 1, 1, 1, 1, 0],
 ];
 
 pub trait DigitalAmplitude {
@@ -27,8 +27,7 @@ pub trait Clock {
 
     fn set_frequency_timer(&mut self, value: u32);
 
-    fn set_frequency(&mut self, _value: u32) {
-    }
+    fn set_frequency(&mut self, _value: u32) {}
 
     fn reset_frequency_timer(&mut self) {
         let timer = (0x800 - self.frequency()) * 4;
@@ -170,11 +169,7 @@ pub trait SweepModulation: Channel + WaveModulation {
         *self.shadow_frequency() = self.frequency() as u16;
         let period = self.sweep_period();
         let period_timer = self.sweep_timer();
-        *period_timer = if period > 0 {
-            period
-        } else {
-            8
-        };
+        *period_timer = if period > 0 { period } else { 8 };
         let sweep_shift = self.sweep_shift();
 
         self.set_sweep_enabled(period != 0 || sweep_shift != 0);
@@ -211,11 +206,7 @@ pub trait SweepModulation: Channel + WaveModulation {
         }
 
         if *timer == 0 {
-            *timer = if period > 0 {
-                period
-            } else {
-                8
-            };
+            *timer = if period > 0 { period } else { 8 };
 
             if self.is_sweep_enabled() && self.sweep_period() > 0 {
                 let new_frequency = self.calculate_sweep_frequency();

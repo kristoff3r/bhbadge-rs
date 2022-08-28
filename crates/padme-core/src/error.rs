@@ -7,8 +7,12 @@ pub enum Error {
 
 macro_rules! io_error {
     ($addr: expr, $read: expr) => {
-        warn!("Cannot {} @ 0x{:04X}", if $read { "read" } else { "write" }, $addr)
-    }
+        warn!(
+            "Cannot {} @ 0x{:04X}",
+            if $read { "read" } else { "write" },
+            $addr
+        )
+    };
 }
 
 pub fn io_error_read(address: u16) {

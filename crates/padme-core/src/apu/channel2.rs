@@ -5,10 +5,10 @@ use super::modulation::*;
 //
 // Default register values
 //
-const DEFAULT_REG_DMG_NR21: u8          = 0x3F;
-const DEFAULT_REG_DMG_NR22: u8          = 0x00;
-const DEFAULT_REG_DMG_NR23: u8          = 0xFF;
-const DEFAULT_REG_DMG_NR24: u8          = 0xBF;
+const DEFAULT_REG_DMG_NR21: u8 = 0x3F;
+const DEFAULT_REG_DMG_NR22: u8 = 0x00;
+const DEFAULT_REG_DMG_NR23: u8 = 0xFF;
+const DEFAULT_REG_DMG_NR24: u8 = 0xBF;
 
 pub struct Channel2 {
     enabled: bool,
@@ -166,19 +166,23 @@ impl MemoryRegion for Channel2 {
             REG_NR21_ADDR => {
                 self.length_counter = 64 - (value & 0b0011_1111);
                 self.reg_nr21 = value
-            },
+            }
             REG_NR22_ADDR => {
                 self.reg_nr22 = value;
                 if !self.is_dac_enabled() {
                     self.enabled = false;
                 }
-            },
+            }
             REG_NR23_ADDR => self.reg_nr23 = value,
             REG_NR24_ADDR => {
                 let trigger = is_set!(value, 0b1000_0000);
                 let length_enabled = is_set!(value, 0b0100_0000);
 
-                if self.length_half_period && !self.is_length_enabled() && length_enabled && self.length_counter > 0 {
+                if self.length_half_period
+                    && !self.is_length_enabled()
+                    && length_enabled
+                    && self.length_counter > 0
+                {
                     self.length_counter -= 1;
                     if self.length_counter == 0 {
                         self.enabled = false;
@@ -189,7 +193,7 @@ impl MemoryRegion for Channel2 {
                 if trigger {
                     self.trigger();
                 }
-            },
+            }
             _ => unreachable!(),
         }
     }

@@ -1,6 +1,6 @@
-use std::fs;
-use padme_core::*;
 use padme_core::default::{NoScreen, NoSpeaker};
+use padme_core::*;
+use std::fs;
 
 struct SerialBuffer {
     pub data: String,
@@ -19,7 +19,14 @@ fn get_bin(name: &str) -> Vec<u8> {
 fn check_output(bin_name: &str, max_ticks: usize) -> bool {
     let bin = get_bin(bin_name);
     let rom = Rom::load(bin).unwrap();
-    let mut emu = System::new(rom, NoScreen, SerialBuffer { data: "".to_owned() }, NoSpeaker);
+    let mut emu = System::new(
+        rom,
+        NoScreen,
+        SerialBuffer {
+            data: "".to_owned(),
+        },
+        NoSpeaker,
+    );
     let mut ticks: usize = 0;
 
     loop {
@@ -29,7 +36,10 @@ fn check_output(bin_name: &str, max_ticks: usize) -> bool {
         }
     }
 
-    return emu.serial().data.contains(&format!("{}\n\n\nPassed", bin_name));
+    return emu
+        .serial()
+        .data
+        .contains(&format!("{}\n\n\nPassed", bin_name));
 }
 
 #[test]

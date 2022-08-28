@@ -10,4 +10,4 @@ use channel2::Channel2;
 use channel3::Channel3;
 use channel4::Channel4;
 
-pub use apu::{AUDIO_SAMPLE_RATE, Apu, AudioSpeaker};
+pub use apu::{Apu, AudioSpeaker, AUDIO_SAMPLE_RATE};

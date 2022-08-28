@@ -1,23 +1,23 @@
-use crate::region::*;
 use crate::interrupt::{InterruptFlag, InterruptHandler};
+use crate::region::*;
 
 // Default register values
-const DEFAULT_REG_DMG_P1: u8    = 0xCF;
+const DEFAULT_REG_DMG_P1: u8 = 0xCF;
 
-const FLAG_ACTION_BUTTON: u8    = 0x20;
-const FLAG_DIR_BUTTON: u8       = 0x10;
+const FLAG_ACTION_BUTTON: u8 = 0x20;
+const FLAG_DIR_BUTTON: u8 = 0x10;
 
 #[repr(u8)]
 #[derive(Clone, Copy)]
 pub enum Button {
-    Start       = 0b00101000,
-    Select      = 0b00100100,
-    B           = 0b00100010,
-    A           = 0b00100001,
-    Down        = 0b00011000,
-    Up          = 0b00010100,
-    Left        = 0b00010010,
-    Right       = 0b00010001,
+    Start = 0b00101000,
+    Select = 0b00100100,
+    B = 0b00100010,
+    A = 0b00100001,
+    Down = 0b00011000,
+    Up = 0b00010100,
+    Left = 0b00010010,
+    Right = 0b00010001,
 }
 
 pub struct Joypad {

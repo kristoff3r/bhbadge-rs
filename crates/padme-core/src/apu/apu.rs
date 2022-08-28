@@ -1,21 +1,21 @@
 use crate::cpu::CLOCK_SPEED;
 use crate::region::*;
 
-use super::{Channel1, Channel2, Channel3, Channel4};
 use super::modulation::*;
+use super::{Channel1, Channel2, Channel3, Channel4};
 
-pub const AUDIO_SAMPLE_RATE: u32        = 48000; // Hz
+pub const AUDIO_SAMPLE_RATE: u32 = 48000; // Hz
 
-const SAMPLE_PERIOD: u32                = CLOCK_SPEED / AUDIO_SAMPLE_RATE;
-const FRAME_SEQUENCER_RATE: u32         = 512; // Hz
-const FRAME_SEQUENCER_PERIOD: u32       = CLOCK_SPEED / FRAME_SEQUENCER_RATE;
+const SAMPLE_PERIOD: u32 = CLOCK_SPEED / AUDIO_SAMPLE_RATE;
+const FRAME_SEQUENCER_RATE: u32 = 512; // Hz
+const FRAME_SEQUENCER_PERIOD: u32 = CLOCK_SPEED / FRAME_SEQUENCER_RATE;
 
 //
 // Default register values
 //
-const DEFAULT_REG_DMG_NR50: u8          = 0x77;
-const DEFAULT_REG_DMG_NR51: u8          = 0xF3;
-const DEFAULT_REG_DMG_NR52: u8          = 0xF1;
+const DEFAULT_REG_DMG_NR50: u8 = 0x77;
+const DEFAULT_REG_DMG_NR51: u8 = 0xF3;
+const DEFAULT_REG_DMG_NR52: u8 = 0xF1;
 
 pub trait AudioSpeaker {
     fn set_samples(&mut self, left: f32, right: f32);
@@ -165,7 +165,6 @@ impl Apu {
         // Every sample period, we can send the current sample to the speaker
         // It's up to the speaker to store an audio buffer and play it a regular interval
         if self.ticks % SAMPLE_PERIOD == 0 {
-
             let left_volume = self.volume_left();
             let right_volume = self.volume_right();
 
@@ -180,33 +179,21 @@ impl Apu {
 impl MemoryRegion for Apu {
     fn read(&self, address: u16) -> u8 {
         match address {
-            REG_NR10_ADDR |
-            REG_NR11_ADDR |
-            REG_NR12_ADDR |
-            REG_NR13_ADDR |
-            REG_NR14_ADDR => {
+            REG_NR10_ADDR | REG_NR11_ADDR | REG_NR12_ADDR | REG_NR13_ADDR | REG_NR14_ADDR => {
                 self.channel_1.read(address)
-            },
-            REG_NR21_ADDR |
-            REG_NR22_ADDR |
-            REG_NR23_ADDR |
-            REG_NR24_ADDR => {
+            }
+            REG_NR21_ADDR | REG_NR22_ADDR | REG_NR23_ADDR | REG_NR24_ADDR => {
                 self.channel_2.read(address)
-            },
-            REG_NR30_ADDR |
-            REG_NR31_ADDR |
-            REG_NR32_ADDR |
-            REG_NR33_ADDR |
-            REG_NR34_ADDR |
-            WAVE_PATTERN_RAM_START..=WAVE_PATTERN_RAM_END => {
-                self.channel_3.read(address)
-            },
-            REG_NR41_ADDR |
-            REG_NR42_ADDR |
-            REG_NR43_ADDR |
-            REG_NR44_ADDR => {
+            }
+            REG_NR30_ADDR
+            | REG_NR31_ADDR
+            | REG_NR32_ADDR
+            | REG_NR33_ADDR
+            | REG_NR34_ADDR
+            | WAVE_PATTERN_RAM_START..=WAVE_PATTERN_RAM_END => self.channel_3.read(address),
+            REG_NR41_ADDR | REG_NR42_ADDR | REG_NR43_ADDR | REG_NR44_ADDR => {
                 self.channel_4.read(address)
-            },
+            }
             REG_NR50_ADDR => self.reg_nr50,
             REG_NR51_ADDR => self.reg_nr51,
             REG_NR52_ADDR => {
@@ -216,48 +203,38 @@ impl MemoryRegion for Apu {
                 value |= (self.channel_3.is_enabled() as u8) << 2;
                 value |= (self.channel_4.is_enabled() as u8) << 3;
                 value
-            },
+            }
             _ => 0xFF,
         }
     }
 
     fn write(&mut self, address: u16, value: u8) {
-        if !self.is_enabled() && !(WAVE_PATTERN_RAM_START..=WAVE_PATTERN_RAM_START).contains(&address)
+        if !self.is_enabled()
+            && !(WAVE_PATTERN_RAM_START..=WAVE_PATTERN_RAM_START).contains(&address)
             && address != REG_NR11_ADDR
             && address != REG_NR21_ADDR
             && address != REG_NR31_ADDR
             && address != REG_NR41_ADDR
-            && address != REG_NR52_ADDR {
-                return;
+            && address != REG_NR52_ADDR
+        {
+            return;
         }
         match address {
-            REG_NR10_ADDR |
-            REG_NR11_ADDR |
-            REG_NR12_ADDR |
-            REG_NR13_ADDR |
-            REG_NR14_ADDR => {
+            REG_NR10_ADDR | REG_NR11_ADDR | REG_NR12_ADDR | REG_NR13_ADDR | REG_NR14_ADDR => {
                 self.channel_1.write(address, value)
-            },
-            REG_NR21_ADDR |
-            REG_NR22_ADDR |
-            REG_NR23_ADDR |
-            REG_NR24_ADDR => {
+            }
+            REG_NR21_ADDR | REG_NR22_ADDR | REG_NR23_ADDR | REG_NR24_ADDR => {
                 self.channel_2.write(address, value)
-            },
-            REG_NR30_ADDR |
-            REG_NR31_ADDR |
-            REG_NR32_ADDR |
-            REG_NR33_ADDR |
-            REG_NR34_ADDR |
-            WAVE_PATTERN_RAM_START..=WAVE_PATTERN_RAM_END => {
-                self.channel_3.write(address, value)
-            },
-            REG_NR41_ADDR |
-            REG_NR42_ADDR |
-            REG_NR43_ADDR |
-            REG_NR44_ADDR => {
+            }
+            REG_NR30_ADDR
+            | REG_NR31_ADDR
+            | REG_NR32_ADDR
+            | REG_NR33_ADDR
+            | REG_NR34_ADDR
+            | WAVE_PATTERN_RAM_START..=WAVE_PATTERN_RAM_END => self.channel_3.write(address, value),
+            REG_NR41_ADDR | REG_NR42_ADDR | REG_NR43_ADDR | REG_NR44_ADDR => {
                 self.channel_4.write(address, value)
-            },
+            }
             REG_NR50_ADDR => self.reg_nr50 = value,
             REG_NR51_ADDR => self.reg_nr51 = value,
             REG_NR52_ADDR => {
@@ -281,7 +258,7 @@ impl MemoryRegion for Apu {
                 self.channel_4.set_length_counter(len_ch4);
 
                 self.reg_nr52 = value & 0x80
-            },
+            }
             _ => (),
         }
     }

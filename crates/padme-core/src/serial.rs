@@ -1,14 +1,14 @@
 use log::trace;
 
-use crate::interrupt::{InterruptHandler, InterruptFlag};
+use crate::interrupt::{InterruptFlag, InterruptHandler};
 use crate::region::*;
 
 // Default registers
-const DEFAULT_REG_SB: u8        = 0x00;
-const DEFAULT_REG_SC: u8        = 0x7E;
+const DEFAULT_REG_SB: u8 = 0x00;
+const DEFAULT_REG_SC: u8 = 0x7E;
 
-const FLAG_SC_TRANSFER: u8      = 0x80;
-const FLAG_SC_INT_CLOCK: u8     = 0x01;
+const FLAG_SC_TRANSFER: u8 = 0x80;
+const FLAG_SC_INT_CLOCK: u8 = 0x01;
 
 pub trait SerialOutput {
     fn putchar(&mut self, c: u8);
@@ -36,13 +36,18 @@ impl Serial {
     }
 
     pub fn step<SO>(&mut self, out: &mut SO, it: &mut InterruptHandler)
-        where SO: SerialOutput
+    where
+        SO: SerialOutput,
     {
         const NEW_CHAR_FLAG: u8 = FLAG_SC_TRANSFER | FLAG_SC_INT_CLOCK;
 
         if (self.reg_sc & NEW_CHAR_FLAG) == NEW_CHAR_FLAG {
             self.reg_sc &= !FLAG_SC_TRANSFER;
-            trace!("write character: 0x{:02X} ({})", self.reg_sb, self.reg_sb as char);
+            trace!(
+                "write character: 0x{:02X} ({})",
+                self.reg_sb,
+                self.reg_sb as char
+            );
             out.putchar(self.reg_sb);
             it.request(InterruptFlag::Serial);
         }

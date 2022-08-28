@@ -5,11 +5,11 @@ use super::modulation::*;
 //
 // Default register values
 //
-const DEFAULT_REG_DMG_NR10: u8          = 0x80;
-const DEFAULT_REG_DMG_NR11: u8          = 0xBF;
-const DEFAULT_REG_DMG_NR12: u8          = 0xF3;
-const DEFAULT_REG_DMG_NR13: u8          = 0xFF;
-const DEFAULT_REG_DMG_NR14: u8          = 0xBF;
+const DEFAULT_REG_DMG_NR10: u8 = 0x80;
+const DEFAULT_REG_DMG_NR11: u8 = 0xBF;
+const DEFAULT_REG_DMG_NR12: u8 = 0xF3;
+const DEFAULT_REG_DMG_NR13: u8 = 0xFF;
+const DEFAULT_REG_DMG_NR14: u8 = 0xBF;
 
 pub struct Channel1 {
     /// Whether this channel is enabled or not
@@ -221,36 +221,40 @@ impl MemoryRegion for Channel1 {
                 if !self.is_sweep_decreasing() && self.sweep_was_decreasing {
                     self.enabled = false;
                 }
-            },
+            }
             REG_NR11_ADDR => {
                 self.length_counter = 64 - (value & 0b0011_1111);
                 self.reg_nr11 = value
-            },
+            }
             REG_NR12_ADDR => {
                 self.reg_nr12 = value;
                 if !self.is_dac_enabled() {
                     self.enabled = false;
                 }
-            },
+            }
             REG_NR13_ADDR => self.reg_nr13 = value,
             REG_NR14_ADDR => {
                 let trigger = is_set!(value, 0b1000_0000);
                 let length_enabled = is_set!(value, 0b0100_0000);
 
-                if self.length_half_period && !self.is_length_enabled() && length_enabled && self.length_counter > 0 {
-                        self.length_counter -= 1;
+                if self.length_half_period
+                    && !self.is_length_enabled()
+                    && length_enabled
+                    && self.length_counter > 0
+                {
+                    self.length_counter -= 1;
 
-                        if self.length_counter == 0 {
-                            self.enabled = false;
-                        }
+                    if self.length_counter == 0 {
+                        self.enabled = false;
                     }
+                }
 
                 self.reg_nr14 = value;
                 // trigger a channel restart
                 if trigger {
                     self.trigger();
                 }
-            },
+            }
             _ => unreachable!(),
         }
     }

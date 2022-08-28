@@ -5,11 +5,11 @@ use super::modulation::*;
 //
 // Default register values
 //
-const DEFAULT_REG_DMG_NR30: u8          = 0x7F;
-const DEFAULT_REG_DMG_NR31: u8          = 0xFF;
-const DEFAULT_REG_DMG_NR32: u8          = 0x9F;
-const DEFAULT_REG_DMG_NR33: u8          = 0xFF;
-const DEFAULT_REG_DMG_NR34: u8          = 0xBF;
+const DEFAULT_REG_DMG_NR30: u8 = 0x7F;
+const DEFAULT_REG_DMG_NR31: u8 = 0xFF;
+const DEFAULT_REG_DMG_NR32: u8 = 0x9F;
+const DEFAULT_REG_DMG_NR33: u8 = 0xFF;
+const DEFAULT_REG_DMG_NR34: u8 = 0xBF;
 
 pub struct Channel3 {
     enabled: bool,
@@ -199,7 +199,7 @@ impl MemoryRegion for Channel3 {
                 } else {
                     self.wave_ram[(address - WAVE_PATTERN_RAM_START) as usize]
                 }
-            },
+            }
             _ => unreachable!(),
         }
     }
@@ -211,18 +211,22 @@ impl MemoryRegion for Channel3 {
                 if !self.is_dac_enabled() {
                     self.enabled = false;
                 }
-            },
+            }
             REG_NR31_ADDR => {
                 self.set_length_counter(256 - (value as u16));
                 self.reg_nr31 = value;
-            },
+            }
             REG_NR32_ADDR => self.reg_nr32 = value,
             REG_NR33_ADDR => self.reg_nr33 = value,
             REG_NR34_ADDR => {
                 let trigger = is_set!(value, 0b1000_0000);
                 let length_enabled = is_set!(value, 0b0100_0000);
 
-                if self.length_half_period && !self.is_length_enabled() && length_enabled && self.length_counter > 0 {
+                if self.length_half_period
+                    && !self.is_length_enabled()
+                    && length_enabled
+                    && self.length_counter > 0
+                {
                     self.length_counter -= 1;
 
                     if self.length_counter == 0 {
@@ -235,7 +239,7 @@ impl MemoryRegion for Channel3 {
                 if trigger {
                     self.trigger();
                 }
-            },
+            }
             WAVE_PATTERN_RAM_START..=WAVE_PATTERN_RAM_END => {
                 if self.enabled {
                     if self.wave_just_read {
@@ -244,7 +248,7 @@ impl MemoryRegion for Channel3 {
                 } else {
                     self.wave_ram[(address - WAVE_PATTERN_RAM_START) as usize] = value
                 }
-            },
+            }
             _ => unreachable!(),
         }
     }

@@ -1,6 +1,6 @@
 use log::trace;
 
-use crate::interrupt::{InterruptHandler, InterruptFlag};
+use crate::interrupt::{InterruptFlag, InterruptHandler};
 use crate::region::*;
 
 use super::{FetchState, Pipeline, Pixel, Sprite};
@@ -8,87 +8,107 @@ use super::{FetchState, Pipeline, Pixel, Sprite};
 //
 // Frame configuration
 //
-pub const FRAME_WIDTH: usize            = 160;
-pub const FRAME_HEIGHT: usize           = 144;
+pub const FRAME_WIDTH: usize = 160;
+pub const FRAME_HEIGHT: usize = 144;
 
 //
 // Default register values
 //
-const DEFAULT_REG_DMG_LCDC: u8          = 0x91;
-const DEFAULT_REG_DMG_STAT: u8          = 0x81;
-const DEFAULT_REG_DMG_SCY: u8           = 0x00;
-const DEFAULT_REG_DMG_SCX: u8           = 0x00;
-const DEFAULT_REG_DMG_LY: u8            = 0x91;
-const DEFAULT_REG_DMG_LYC: u8           = 0x00;
-const DEFAULT_REG_DMG_DMA: u8           = 0xFF;
-const DEFAULT_REG_DMG_BGP: u8           = 0xFC;
-const DEFAULT_REG_DMG_WY: u8            = 0x00;
-const DEFAULT_REG_DMG_WX: u8            = 0x00;
-const DEFAULT_REG_DMG_OBP0: u8          = 0xFF;
-const DEFAULT_REG_DMG_OBP1: u8          = 0xFF;
+const DEFAULT_REG_DMG_LCDC: u8 = 0x91;
+const DEFAULT_REG_DMG_STAT: u8 = 0x81;
+const DEFAULT_REG_DMG_SCY: u8 = 0x00;
+const DEFAULT_REG_DMG_SCX: u8 = 0x00;
+const DEFAULT_REG_DMG_LY: u8 = 0x91;
+const DEFAULT_REG_DMG_LYC: u8 = 0x00;
+const DEFAULT_REG_DMG_DMA: u8 = 0xFF;
+const DEFAULT_REG_DMG_BGP: u8 = 0xFC;
+const DEFAULT_REG_DMG_WY: u8 = 0x00;
+const DEFAULT_REG_DMG_WX: u8 = 0x00;
+const DEFAULT_REG_DMG_OBP0: u8 = 0xFF;
+const DEFAULT_REG_DMG_OBP1: u8 = 0xFF;
 
 //
 // Tile regions
 //
-const TILE_DATA_0_START_ADDR: u16       = VRAM_REGION_START;
-const TILE_DATA_1_START_ADDR: u16       = 0x8800;
+const TILE_DATA_0_START_ADDR: u16 = VRAM_REGION_START;
+const TILE_DATA_1_START_ADDR: u16 = 0x8800;
 
-const TILE_MAP_0_START_ADDR: u16        = 0x9800;
-const TILE_MAP_1_START_ADDR: u16        = 0x9C00;
+const TILE_MAP_0_START_ADDR: u16 = 0x9800;
+const TILE_MAP_1_START_ADDR: u16 = 0x9C00;
 
 //
 // LCD status flags
 //
-const FLAG_STAT_IT_LYC: u8              = 0b01000000;
-const FLAG_STAT_IT_OAM: u8              = 0b00100000;
-const FLAG_STAT_IT_VBLANK: u8           = 0b00010000;
-const FLAG_STAT_IT_HBLANK: u8           = 0b00001000;
-const FLAG_STAT_LYC: u8                 = 0b00000100;
-const FLAG_STAT_MODE: u8                = 0b00000011;
+const FLAG_STAT_IT_LYC: u8 = 0b01000000;
+const FLAG_STAT_IT_OAM: u8 = 0b00100000;
+const FLAG_STAT_IT_VBLANK: u8 = 0b00010000;
+const FLAG_STAT_IT_HBLANK: u8 = 0b00001000;
+const FLAG_STAT_LYC: u8 = 0b00000100;
+const FLAG_STAT_MODE: u8 = 0b00000011;
 
 //
 // LCD status modes
 //
-const LCD_STATUS_MODE_HBLANK: u8        = 0;
-const LCD_STATUS_MODE_VBLANK: u8        = 1;
-const LCD_STATUS_MODE_OAM: u8           = 2;
-const LCD_STATUS_MODE_XFER: u8          = 3;
+const LCD_STATUS_MODE_HBLANK: u8 = 0;
+const LCD_STATUS_MODE_VBLANK: u8 = 1;
+const LCD_STATUS_MODE_OAM: u8 = 2;
+const LCD_STATUS_MODE_XFER: u8 = 3;
 
 //
 // LCD control flags
 //
-const FLAG_LCDC_LCD_ENABLE: u8          = 0b10000000;
-const FLAG_LCDC_WIN_TMAP_AREA: u8       = 0b01000000;
-const FLAG_LCDC_WIN_ENABLE: u8          = 0b00100000;
-const FLAG_LCDC_BGWIN_TDATA_AREA: u8    = 0b00010000;
-const FLAG_LCDC_BG_TMAP_AREA: u8        = 0b00001000;
-const FLAG_LCDC_OBJ_SIZE: u8            = 0b00000100;
-const FLAG_LCDC_OBJ_ENABLE: u8          = 0b00000010;
-const FLAG_LCDC_BG_WIN_ENABLE: u8       = 0b00000001;
+const FLAG_LCDC_LCD_ENABLE: u8 = 0b10000000;
+const FLAG_LCDC_WIN_TMAP_AREA: u8 = 0b01000000;
+const FLAG_LCDC_WIN_ENABLE: u8 = 0b00100000;
+const FLAG_LCDC_BGWIN_TDATA_AREA: u8 = 0b00010000;
+const FLAG_LCDC_BG_TMAP_AREA: u8 = 0b00001000;
+const FLAG_LCDC_OBJ_SIZE: u8 = 0b00000100;
+const FLAG_LCDC_OBJ_ENABLE: u8 = 0b00000010;
+const FLAG_LCDC_BG_WIN_ENABLE: u8 = 0b00000001;
 
 //
 // Modes
 //
-const OAM_LIMIT_PERIOD: u32             = 80;
-const XFER_LIMIT_PERIOD: u32            = OAM_LIMIT_PERIOD + 172;
-const HBLANK_LIMIT_PERIOD: u32          = 456;
-const FRAME_LIMIT_PERIOD: u32           = HBLANK_LIMIT_PERIOD * (FRAME_HEIGHT as u32);
-const VBLANK_LIMIT_PERIOD: u32          = FRAME_LIMIT_PERIOD + HBLANK_LIMIT_PERIOD * 10;
+const OAM_LIMIT_PERIOD: u32 = 80;
+const XFER_LIMIT_PERIOD: u32 = OAM_LIMIT_PERIOD + 172;
+const HBLANK_LIMIT_PERIOD: u32 = 456;
+const FRAME_LIMIT_PERIOD: u32 = HBLANK_LIMIT_PERIOD * (FRAME_HEIGHT as u32);
+const VBLANK_LIMIT_PERIOD: u32 = FRAME_LIMIT_PERIOD + HBLANK_LIMIT_PERIOD * 10;
 
 //
 // Default pixels
 //
 // This white is slightly less white than pixel used during disabled screen
-const PIXEL_COLOR_WHITE: Pixel          = Pixel { r: 0xFE, g: 0xFE, b: 0xFE, a: 0xFE };
-const PIXEL_COLOR_LIGHTGRAY: Pixel      = Pixel { r: 0xC0, g: 0xC0, b: 0xC0, a: 0xFF };
-const PIXEL_COLOR_DARKGRAY: Pixel       = Pixel { r: 0x60, g: 0x60, b: 0x60, a: 0xFF };
-const PIXEL_COLOR_BLACK: Pixel          = Pixel { r: 0x00, g: 0x00, b: 0x00, a: 0xFF };
+const PIXEL_COLOR_WHITE: Pixel = Pixel {
+    r: 0xFE,
+    g: 0xFE,
+    b: 0xFE,
+    a: 0xFE,
+};
+const PIXEL_COLOR_LIGHTGRAY: Pixel = Pixel {
+    r: 0xC0,
+    g: 0xC0,
+    b: 0xC0,
+    a: 0xFF,
+};
+const PIXEL_COLOR_DARKGRAY: Pixel = Pixel {
+    r: 0x60,
+    g: 0x60,
+    b: 0x60,
+    a: 0xFF,
+};
+const PIXEL_COLOR_BLACK: Pixel = Pixel {
+    r: 0x00,
+    g: 0x00,
+    b: 0x00,
+    a: 0xFF,
+};
 
 // Debug functions
 macro_rules! trace_mode {
     ($mode: expr) => {
         trace!("pixel mode: {}", $mode)
-    }
+    };
 }
 
 /// This represents a Screen surface
@@ -199,8 +219,8 @@ impl Ppu {
         self.pipeline = Pipeline::new();
         self.dma_active = false;
         self.dma_idx = 0;
-        self.vram.iter_mut().for_each(| byte | *byte = 0);
-        self.oam.iter_mut().for_each(| byte | *byte = 0);
+        self.vram.iter_mut().for_each(|byte| *byte = 0);
+        self.oam.iter_mut().for_each(|byte| *byte = 0);
     }
 
     /// Starts a DMA transfer
@@ -208,8 +228,11 @@ impl Ppu {
         self.reg_dma = source;
         self.dma_active = true;
         self.dma_idx = 0;
-        trace!("dma start with source = 0x{:04X}, destination = 0x{:04X}",
-               self.dma_source(), OAM_REGION_START);
+        trace!(
+            "dma start with source = 0x{:04X}, destination = 0x{:04X}",
+            self.dma_source(),
+            OAM_REGION_START
+        );
     }
 
     /// Checks whether DMA transfer is still pending
@@ -284,7 +307,11 @@ impl Ppu {
     /// Retrieve sprite size for the current row
     #[inline]
     fn obj_size(&self) -> u8 {
-        if is_set!(self.reg_lcdc, FLAG_LCDC_OBJ_SIZE) { 16 } else { 8 }
+        if is_set!(self.reg_lcdc, FLAG_LCDC_OBJ_SIZE) {
+            16
+        } else {
+            8
+        }
     }
 
     /// Retrieve background tile map
@@ -349,11 +376,11 @@ impl Ppu {
         if self.hdots == 1 {
             self.scan_sprites();
             // check if this line is a window_y trigger
-            if self.is_win_enabled() &&
-                self.reg_wx < (FRAME_WIDTH as u8) &&
-                self.reg_wy < (FRAME_HEIGHT as u8) &&
-                self.reg_ly >= self.reg_wy &&
-                self.reg_ly < self.reg_wy.wrapping_add(FRAME_HEIGHT as u8)
+            if self.is_win_enabled()
+                && self.reg_wx < (FRAME_WIDTH as u8)
+                && self.reg_wy < (FRAME_HEIGHT as u8)
+                && self.reg_ly >= self.reg_wy
+                && self.reg_ly < self.reg_wy.wrapping_add(FRAME_HEIGHT as u8)
             {
                 if !self.pipeline.win_y_triggered {
                     self.pipeline.win_y_triggered = true;
@@ -441,7 +468,12 @@ impl Ppu {
     /// Disable PPU & sets default LCD screen color
     fn disable<S: Screen>(&mut self, screen: &mut S) {
         self.pipeline.disabled = true;
-        let px = Pixel { r: 0xFF, g: 0xFF, b: 0xFF, a: 0xFF };
+        let px = Pixel {
+            r: 0xFF,
+            g: 0xFF,
+            b: 0xFF,
+            a: 0xFF,
+        };
         for y in 0..FRAME_HEIGHT {
             for x in 0..FRAME_WIDTH {
                 screen.set_pixel(&px, x as u8, y as u8);
@@ -466,23 +498,27 @@ impl Ppu {
         if self.reg_wx < (FRAME_WIDTH as u8 + 7)
             && self.reg_wy < (FRAME_HEIGHT as u8)
             && self.pipeline.win_y_triggered
-            && (self.pipeline.fetch_x + 7) >= self.reg_wx {
-                let tile_y = self.pipeline.win_ly as u16 / 8;
-                let addr = (self.pipeline.fetch_x as u16 + 7 - self.reg_wx as u16) / 8 + tile_y * 32;
-                let tile_index = self.read(self.win_map_area() + addr);
-                let offset = if is_not_set!(self.reg_lcdc, FLAG_LCDC_BGWIN_TDATA_AREA) {
-                    128u8
-                } else {
-                    0u8
-                };
-                self.pipeline.bgw_data[0] = tile_index.wrapping_add(offset);
-            }
+            && (self.pipeline.fetch_x + 7) >= self.reg_wx
+        {
+            let tile_y = self.pipeline.win_ly as u16 / 8;
+            let addr = (self.pipeline.fetch_x as u16 + 7 - self.reg_wx as u16) / 8 + tile_y * 32;
+            let tile_index = self.read(self.win_map_area() + addr);
+            let offset = if is_not_set!(self.reg_lcdc, FLAG_LCDC_BGWIN_TDATA_AREA) {
+                128u8
+            } else {
+                0u8
+            };
+            self.pipeline.bgw_data[0] = tile_index.wrapping_add(offset);
+        }
     }
 
     /// Retrieve the current background/window tile data
     fn load_bgwin_data(&mut self, offset: u16) {
         let tile_index = self.pipeline.bgw_data[0];
-        let addr = self.bgwin_data_area() + tile_index as u16 * 16 + self.pipeline.tile_y as u16 * 2 + offset;
+        let addr = self.bgwin_data_area()
+            + tile_index as u16 * 16
+            + self.pipeline.tile_y as u16 * 2
+            + offset;
         self.pipeline.bgw_data[1 + offset as usize] = self.read(addr);
     }
 
@@ -501,7 +537,8 @@ impl Ppu {
             let attrs = self.oam[i + 3];
 
             if rel_y >= y && rel_y < y + obj_size {
-                self.pipeline.push_sprite(Sprite::new(x, y, tile_index, attrs));
+                self.pipeline
+                    .push_sprite(Sprite::new(x, y, tile_index, attrs));
                 if self.pipeline.obj_count >= 10 {
                     break;
                 }
@@ -523,15 +560,16 @@ impl Ppu {
             let fetch_x1 = (self.pipeline.fetch_x as i16).wrapping_add(8);
 
             if (rel_x >= self.pipeline.fetch_x as i16 && rel_x < fetch_x1)
-                || (rel_x1 >= self.pipeline.fetch_x as i16 && rel_x1 < fetch_x1) {
-                    self.pipeline.obj_fetched_idx[self.pipeline.obj_fetched_count as usize] = i as u8;
-                    self.pipeline.obj_fetched_count += 1;
-                    // There cannot be more than 3 sprites to appear within 8 pixels
-                    // left + middle + right
-                    if self.pipeline.obj_fetched_count >= 3 {
-                        break;
-                    }
+                || (rel_x1 >= self.pipeline.fetch_x as i16 && rel_x1 < fetch_x1)
+            {
+                self.pipeline.obj_fetched_idx[self.pipeline.obj_fetched_count as usize] = i as u8;
+                self.pipeline.obj_fetched_count += 1;
+                // There cannot be more than 3 sprites to appear within 8 pixels
+                // left + middle + right
+                if self.pipeline.obj_fetched_count >= 3 {
+                    break;
                 }
+            }
         }
     }
 
@@ -562,7 +600,7 @@ impl Ppu {
         macro_rules! color_id {
             ($low: expr, $high: expr, $bit: expr) => {
                 (($low >> $bit) & 0x01) | ((($high >> $bit) & 0x01) << 1)
-            }
+            };
         }
 
         let bg_low = self.pipeline.bgw_data[1];
@@ -582,7 +620,9 @@ impl Ppu {
             if self.is_obj_enabled() {
                 for j in 0..(self.pipeline.obj_fetched_count as usize) {
                     let obj = self.pipeline.obj_list[self.pipeline.obj_fetched_idx[j] as usize];
-                    let rel_x = (obj.x as i16).wrapping_sub(8).wrapping_add((self.reg_scx % 8) as i16);
+                    let rel_x = (obj.x as i16)
+                        .wrapping_sub(8)
+                        .wrapping_add((self.reg_scx % 8) as i16);
 
                     // Too far
                     if rel_x.wrapping_add(8) < self.pipeline.fetch_x as i16 {
@@ -592,7 +632,11 @@ impl Ppu {
                     if !(0..=7).contains(&offset) {
                         continue;
                     }
-                    let bit = if obj.is_x_flipped() { offset } else { 7 - offset };
+                    let bit = if obj.is_x_flipped() {
+                        offset
+                    } else {
+                        7 - offset
+                    };
                     let obj_low = self.pipeline.obj_data[j * 2];
                     let obj_high = self.pipeline.obj_data[j * 2 + 1];
                     let obj_color_id = color_id!(obj_low, obj_high, bit);
@@ -601,7 +645,11 @@ impl Ppu {
                         continue;
                     }
                     if !obj.is_bgwin_prio() || bg_color_id == 0 {
-                        let pal = if obj.palette_number() == 0 { self.reg_obp0 } else { self.reg_obp1 };
+                        let pal = if obj.palette_number() == 0 {
+                            self.reg_obp0
+                        } else {
+                            self.reg_obp1
+                        };
                         pixel = Ppu::pixel_from_id(pal, obj_color_id);
                         break;
                     }
@@ -610,7 +658,6 @@ impl Ppu {
             self.pipeline.bgw_fifo.push(pixel);
             self.pipeline.fetch_x += 1;
         }
-
     }
 
     /// Handle pixel row and display pixels if any
@@ -656,26 +703,26 @@ impl Ppu {
                     self.select_sprites();
                 }
                 self.pipeline.state = FetchState::TileDataLow;
-            },
+            }
             FetchState::TileDataLow => {
                 self.load_bgwin_data(0);
                 self.load_sprite_data(0);
                 self.pipeline.state = FetchState::TileDataHigh;
-            },
+            }
             FetchState::TileDataHigh => {
                 self.load_bgwin_data(1);
                 self.load_sprite_data(1);
                 self.pipeline.state = FetchState::Sleep;
-            },
+            }
             FetchState::Sleep => {
                 self.pipeline.state = FetchState::Push;
-            },
+            }
             FetchState::Push => {
                 if self.pipeline.bgw_fifo.is_empty() {
                     self.push_pixels();
                     self.pipeline.state = FetchState::Tile;
                 }
-            },
+            }
         }
     }
 }
@@ -685,10 +732,8 @@ impl MemoryRegion for Ppu {
         match address {
             VRAM_REGION_START..=VRAM_REGION_END => {
                 self.vram[(address - VRAM_REGION_START) as usize]
-            },
-            OAM_REGION_START..=OAM_REGION_END => {
-                self.oam[(address - OAM_REGION_START) as usize]
-            },
+            }
+            OAM_REGION_START..=OAM_REGION_END => self.oam[(address - OAM_REGION_START) as usize],
             REG_LCDC_ADDR => self.reg_lcdc,
             REG_STAT_ADDR => self.reg_stat,
             REG_SCY_ADDR => self.reg_scy,
@@ -709,10 +754,10 @@ impl MemoryRegion for Ppu {
         match address {
             VRAM_REGION_START..=VRAM_REGION_END => {
                 self.vram[(address - VRAM_REGION_START) as usize] = value
-            },
+            }
             OAM_REGION_START..=OAM_REGION_END => {
                 self.oam[(address - OAM_REGION_START) as usize] = value;
-            },
+            }
             REG_LCDC_ADDR => self.reg_lcdc = value,
             // bit 2, 1 and 0 are readonly
             REG_STAT_ADDR => self.reg_stat = (value & 0xF8) | (self.reg_stat & 0x07),

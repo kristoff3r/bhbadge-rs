@@ -1,9 +1,9 @@
 extern crate st7735;
-use st7735::color::{Color, DefaultColor};
-use st7735::ST7734;
 use linux_embedded_hal::Delay;
 use linux_embedded_hal::Pin;
 use linux_embedded_hal::Spidev;
+use st7735::color::{Color, DefaultColor};
+use st7735::ST7734;
 
 fn main() {
     let delay = Delay;

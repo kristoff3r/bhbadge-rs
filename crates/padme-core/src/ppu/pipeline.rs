@@ -1,5 +1,5 @@
-use crate::collections::Queue;
 use super::{Pixel, Sprite};
+use crate::collections::Queue;
 
 /// 5 steps of the fetching
 pub enum FetchState {

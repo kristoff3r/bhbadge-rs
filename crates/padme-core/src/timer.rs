@@ -1,26 +1,26 @@
 use log::trace;
 
 use crate::cpu::CLOCK_SPEED;
-use crate::interrupt::{InterruptHandler, InterruptFlag};
+use crate::interrupt::{InterruptFlag, InterruptHandler};
 use crate::region::*;
 
 const DIV_PERIOD: u32 = CLOCK_SPEED / 16384;
 
 // Default DMG register values
-const DEFAULT_REG_DIV: u8       = 0x18;
-const DEFAULT_REG_TIMA: u8      = 0x00;
-const DEFAULT_REG_TMA: u8       = 0x00;
-const DEFAULT_REG_TAC: u8       = 0xF8;
+const DEFAULT_REG_DIV: u8 = 0x18;
+const DEFAULT_REG_TIMA: u8 = 0x00;
+const DEFAULT_REG_TMA: u8 = 0x00;
+const DEFAULT_REG_TAC: u8 = 0xF8;
 
 // TAC flags
-const FLAG_TIMER_ENABLED: u8    = 0b00000100;
-const FLAG_INPUT_CLOCK_SEL: u8  = 0b00000011;
+const FLAG_TIMER_ENABLED: u8 = 0b00000100;
+const FLAG_INPUT_CLOCK_SEL: u8 = 0b00000011;
 
 // Input clock values
-const INPUT_CLOCK_SEL_1024: u8  = 0x00;
-const INPUT_CLOCK_SEL_16: u8    = 0x01;
-const INPUT_CLOCK_SEL_64: u8    = 0x02;
-const INPUT_CLOCK_SEL_256: u8   = 0x03;
+const INPUT_CLOCK_SEL_1024: u8 = 0x00;
+const INPUT_CLOCK_SEL_16: u8 = 0x01;
+const INPUT_CLOCK_SEL_64: u8 = 0x02;
+const INPUT_CLOCK_SEL_256: u8 = 0x03;
 
 pub struct Timer {
     /// Divider

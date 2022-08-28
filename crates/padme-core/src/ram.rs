@@ -10,7 +10,6 @@ impl<const N: usize> Ram<N> {
     }
 }
 
-
 impl<const N: usize> MemoryRegion for Ram<N> {
     fn read(&self, address: u16) -> u8 {
         self.bytes[address as usize]

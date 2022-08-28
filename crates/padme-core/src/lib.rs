@@ -105,11 +105,11 @@ mod system;
 mod timer;
 
 // Public exports
-pub use apu::{AUDIO_SAMPLE_RATE, AudioSpeaker};
+pub use apu::{AudioSpeaker, AUDIO_SAMPLE_RATE};
 pub use cpu::CLOCK_SPEED;
 pub use error::Error;
 pub use joypad::Button;
-pub use ppu::{FRAME_HEIGHT, FRAME_WIDTH, Pixel, Screen};
+pub use ppu::{Pixel, Screen, FRAME_HEIGHT, FRAME_WIDTH};
 pub use rom::{CartridgeType, CgbMode, Licensee, Rom};
 pub use serial::SerialOutput;
 pub use system::System;
