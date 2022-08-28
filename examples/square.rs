@@ -112,7 +112,7 @@ fn main() -> ! {
     let (mut spi, mut dc, mut cs) = display.display.spi.release();
     cs.set_low().unwrap();
 
-    init_dma(&mut pac.RESETS, &mut pac.DMA);
+    init_dma(&mut pac.RESETS, &mut pac.DMA, true);
 
     let mut clear_color = Color::BLACK;
 

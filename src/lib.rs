@@ -46,7 +46,7 @@ pub struct LedAndButtons {
     pub button_y: ButtonY,
 }
 
-pub fn init_dma(resets: &mut RESETS, dma: &mut DMA) {
+pub fn init_dma(resets: &mut RESETS, dma: &mut DMA, clear_buffer: bool) {
     resets.reset.modify(|_, w| w.dma().set_bit());
     resets.reset.modify(|_, w| w.dma().clear_bit());
     while resets.reset_done.read().dma().bit_is_clear() {}
@@ -76,38 +76,46 @@ pub fn init_dma(resets: &mut RESETS, dma: &mut DMA) {
         w.sniff_en().clear_bit();
         unsafe {
             w.ring_size().bits(0);
-            w.chain_to().bits(CLEAR_CHANNEL);
+            w.chain_to().bits(if clear_buffer {
+                CLEAR_CHANNEL
+            } else {
+                TX_CHANNEL
+            });
         }
         w.en().set_bit();
         w
     });
 
-    clear_channel
-        .ch_read_addr
-        .write(|w| unsafe { w.bits(&CLEAR_COLOR as *const AtomicU32 as u32) });
-    clear_channel
-        .ch_trans_count
-        .write(|w| unsafe { w.bits(128 * 160 / 2) }); // We write two pixels at a time
-    clear_channel.ch_al1_ctrl.write(|w| {
-        w.incr_read().clear_bit();
-        w.incr_write().set_bit();
-        w.high_priority().clear_bit();
-        w.data_size().size_word();
-        w.treq_sel().permanent();
-        w.bswap().clear_bit();
-        w.ring_sel().clear_bit();
-        w.irq_quiet().clear_bit();
-        w.sniff_en().clear_bit();
-        unsafe {
-            w.ring_size().bits(0);
-            w.chain_to().bits(CLEAR_CHANNEL);
-        }
-        w.en().set_bit();
-        w
-    });
+    if clear_buffer {
+        clear_channel
+            .ch_read_addr
+            .write(|w| unsafe { w.bits(&CLEAR_COLOR as *const AtomicU32 as u32) });
+        clear_channel
+            .ch_trans_count
+            .write(|w| unsafe { w.bits(128 * 160 / 2) }); // We write two pixels at a time
+        clear_channel.ch_al1_ctrl.write(|w| {
+            w.incr_read().clear_bit();
+            w.incr_write().set_bit();
+            w.high_priority().clear_bit();
+            w.data_size().size_word();
+            w.treq_sel().permanent();
+            w.bswap().clear_bit();
+            w.ring_sel().clear_bit();
+            w.irq_quiet().clear_bit();
+            w.sniff_en().clear_bit();
+            unsafe {
+                w.ring_size().bits(0);
+                w.chain_to().bits(CLEAR_CHANNEL);
+            }
+            w.en().set_bit();
+            w
+        });
+    }
 
-    dma.inte0
-        .modify(|r, w| unsafe { w.inte0().bits(r.inte0().bits() | (1 << CLEAR_CHANNEL)) });
+    dma.inte0.modify(|r, w| unsafe {
+        w.inte0()
+            .bits(r.inte0().bits() | (1 << TX_CHANNEL) | (1 << CLEAR_CHANNEL))
+    });
 
     unsafe {
         pac::NVIC::unmask(pac::Interrupt::DMA_IRQ_0);

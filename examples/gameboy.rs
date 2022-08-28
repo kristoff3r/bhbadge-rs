@@ -7,7 +7,7 @@ use bhbadge::{
     color::Color,
     display::{DisplayBuffer, DisplayDevice},
     gameboy, get_current_dma_done, init_dma, send_and_clear_buffer, set_clear_color,
-    wait_for_dma_done, LedAndButtons, CLEAR_CHANNEL,
+    wait_for_dma_done, LedAndButtons, CLEAR_CHANNEL, TX_CHANNEL,
 };
 use bhbadge::{display::RawDisplayBuffer, usb_serial::UsbManager};
 use bhboard as bsp;
@@ -127,17 +127,14 @@ fn main() -> ! {
     let (mut spi, mut dc, mut cs) = display.display.spi.release();
     cs.set_low().unwrap();
 
-    init_dma(&mut pac.RESETS, &mut pac.DMA);
+    init_dma(&mut pac.RESETS, &mut pac.DMA, false);
     let rom = core::include_bytes!("../assets/pokemon.gb");
     let rom = padme_core::Rom::load(rom.as_slice()).unwrap_or_else(|_| panic!());
 
     let mut emulator = padme_core::System::new(rom, gameboy::MySerialConsole, gameboy::MySpeaker);
     // Set the number of frame per seconds
     // This also sets the number of cycles needed per frame given the fixed CPU clock frequency
-    emulator.set_frame_rate(5);
-
-    let clear_color = Color::BLACK;
-    set_clear_color(clear_color.into());
+    emulator.set_frame_rate(60);
 
     let mut counter = 0u16;
 
@@ -145,7 +142,7 @@ fn main() -> ! {
         defmt::debug!("Step {}", counter);
         counter = counter.wrapping_add(1);
 
-        let expected = !get_current_dma_done(CLEAR_CHANNEL);
+        let expected = !get_current_dma_done(TX_CHANNEL);
 
         // At this point the DMA takes ownership over display_buffers[1]
         send_and_clear_buffer(
@@ -176,7 +173,7 @@ fn main() -> ! {
         // display_buffers[0].draw_rect(y..y + 30, x..x + 30, 0xffff);
 
         // Wait for the dma to be done with display_buffers[1]
-        wait_for_dma_done(CLEAR_CHANNEL, expected);
+        wait_for_dma_done(TX_CHANNEL, expected);
 
         // Swap the buffers to be ready for the next loop
         display_buffers.swap(0, 1);
