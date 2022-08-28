@@ -41,7 +41,7 @@
             elf2uf2-rs flip-link python3
 
             # Tools for accessing the serial port (using a logic analyzer)
-            sigrok-cli connect-to-console
+            sigrok-cli connect-to-console self.packages."${system}".defmt-print
           ];
 
           shellHook = ''
@@ -54,5 +54,6 @@
             export SHELL=${bashInteractive}/bin/bash
           '';
         };
+      packages."${system}".defmt-print = pkgs.callPackage ./defmt-print.nix {};
     };
 }
