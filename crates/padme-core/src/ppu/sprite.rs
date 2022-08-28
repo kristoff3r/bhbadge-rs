@@ -1,11 +1,9 @@
-use core::cmp::Ordering;
-
 const FLAG_BGWIN_PRIO: u8 = 0b10000000;
 const FLAG_Y_FLIP: u8 = 0b01000000;
 const FLAG_X_FLIP: u8 = 0b00100000;
 const FLAG_PALETTE_NUMBER: u8 = 0b00010000;
 
-#[derive(Clone, Copy, Eq)]
+#[derive(Clone, Copy)]
 pub struct Sprite {
     /// X coord
     pub x: u8,
@@ -27,15 +25,6 @@ impl Sprite {
         }
     }
 
-    pub fn default() -> Self {
-        Self {
-            x: 0,
-            y: 0,
-            tile_index: 0,
-            attrs: 0,
-        }
-    }
-
     #[inline]
     pub fn is_x_flipped(&self) -> bool {
         is_set!(self.attrs, FLAG_X_FLIP)
@@ -54,23 +43,5 @@ impl Sprite {
     #[inline]
     pub fn palette_number(&self) -> u8 {
         is_set!(self.attrs, FLAG_PALETTE_NUMBER) as u8
-    }
-}
-
-impl Ord for Sprite {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.x.cmp(&other.x)
-    }
-}
-
-impl PartialOrd for Sprite {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl PartialEq for Sprite {
-    fn eq(&self, other: &Self) -> bool {
-        self.x == other.x
     }
 }

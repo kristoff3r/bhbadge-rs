@@ -1,5 +1,6 @@
+use core::cell::Cell;
+
 use super::{Pixel, Sprite};
-use crate::collections::Queue;
 
 /// 5 steps of the fetching
 pub enum FetchState {
@@ -10,18 +11,23 @@ pub enum FetchState {
     Push,
 }
 
+pub struct Obj {
+    pub index: u8,
+    pub addr: u16,
+    /// Sprite data (tile data low, tile data high)
+    pub obj_data: [u8; 2],
+}
+
 pub struct Pipeline {
     /// Whether the ppu processing is disabled
     pub disabled: bool,
     /// To process 1 / 2 times
     pub ticks: u8,
     /// BG/Win Pixel fifo
-    pub bgw_fifo: Queue<Pixel, 16>,
+    pub bgw_fifo: heapless::Deque<Pixel, 16>,
     /// Objects list
-    pub obj_list: [Sprite; 10],
-    pub obj_count: u8,
-    pub obj_fetched_idx: [u8; 3],
-    pub obj_fetched_count: u8,
+    pub obj_list: heapless::Vec<Sprite, 10>,
+    pub obj_fetched: heapless::Vec<Obj, 3>,
     /// Tile map y offset
     pub addr_y_offset: u16,
     /// Current fetched X value in the tile map
@@ -34,8 +40,6 @@ pub struct Pipeline {
     pub lx: u8,
     /// Fetch data (tile index, tile data low, tile data high)
     pub bgw_data: [u8; 3],
-    /// Sprite data (tile data low, tile data high)
-    pub obj_data: [u8; 6],
     /// State of the processing
     pub state: FetchState,
     /// At some point in this frame the value of WY was equal to LY
@@ -49,16 +53,13 @@ impl Pipeline {
         Self {
             disabled: false,
             ticks: 0,
-            bgw_fifo: Queue::new([Pixel::default(); 16]),
-            obj_list: [Sprite::default(); 10],
-            obj_count: 0,
-            obj_fetched_idx: [0u8; 3],
-            obj_fetched_count: 0,
+            bgw_fifo: heapless::Deque::new(),
+            obj_list: heapless::Vec::new(),
+            obj_fetched: heapless::Vec::new(),
             addr_y_offset: 0,
             fetch_x: 0,
             tile_y: 0,
             bgw_data: [0u8; 3],
-            obj_data: [0u8; 6],
             state: FetchState::Tile,
             render_x: 0,
             lx: 0,
@@ -80,18 +81,17 @@ impl Pipeline {
 
     /// Init sprites storage
     pub fn init_sprites(&mut self) {
-        self.obj_count = 0;
-        self.obj_fetched_count = 0;
+        self.obj_list.clear();
+        self.obj_fetched.clear();
     }
 
     /// Add sprites in the 10 potentials
     pub fn push_sprite(&mut self, obj: Sprite) {
-        self.obj_list[self.obj_count as usize] = obj;
-        self.obj_count += 1;
+        let _ = self.obj_list.push(obj);
     }
 
     /// Sort sprites by X
     pub fn sort_sprites(&mut self) {
-        self.obj_list[..self.obj_count as usize].sort_unstable();
+        self.obj_list.sort_unstable_by(|l, r| l.x.cmp(&r.x));
     }
 }

@@ -1,8 +1,9 @@
-use log::trace;
+use core::cell::Cell;
 
 use crate::interrupt::{InterruptFlag, InterruptHandler};
 use crate::region::*;
 
+use super::pipeline::Obj;
 use super::{FetchState, Pipeline, Pixel, Sprite};
 
 //
@@ -83,33 +84,22 @@ const PIXEL_COLOR_WHITE: Pixel = Pixel {
     r: 0xFE,
     g: 0xFE,
     b: 0xFE,
-    a: 0xFE,
 };
 const PIXEL_COLOR_LIGHTGRAY: Pixel = Pixel {
     r: 0xC0,
     g: 0xC0,
     b: 0xC0,
-    a: 0xFF,
 };
 const PIXEL_COLOR_DARKGRAY: Pixel = Pixel {
     r: 0x60,
     g: 0x60,
     b: 0x60,
-    a: 0xFF,
 };
 const PIXEL_COLOR_BLACK: Pixel = Pixel {
     r: 0x00,
     g: 0x00,
     b: 0x00,
-    a: 0xFF,
 };
-
-// Debug functions
-macro_rules! trace_mode {
-    ($mode: expr) => {
-        trace!("pixel mode: {}", $mode)
-    };
-}
 
 /// This represents a Screen surface
 /// # Example
@@ -228,11 +218,6 @@ impl Ppu {
         self.reg_dma = source;
         self.dma_active = true;
         self.dma_idx = 0;
-        trace!(
-            "dma start with source = 0x{:04X}, destination = 0x{:04X}",
-            self.dma_source(),
-            OAM_REGION_START
-        );
     }
 
     /// Checks whether DMA transfer is still pending
@@ -318,9 +303,9 @@ impl Ppu {
     #[inline]
     fn bg_map_area(&self) -> u16 {
         if is_set!(self.reg_lcdc, FLAG_LCDC_BG_TMAP_AREA) {
-            TILE_MAP_1_START_ADDR
+            TILE_MAP_1_START_ADDR - VRAM_REGION_START
         } else {
-            TILE_MAP_0_START_ADDR
+            TILE_MAP_0_START_ADDR - VRAM_REGION_START
         }
     }
 
@@ -328,9 +313,9 @@ impl Ppu {
     #[inline]
     fn bgwin_data_area(&self) -> u16 {
         if is_set!(self.reg_lcdc, FLAG_LCDC_BGWIN_TDATA_AREA) {
-            TILE_DATA_0_START_ADDR
+            TILE_DATA_0_START_ADDR - VRAM_REGION_START
         } else {
-            TILE_DATA_1_START_ADDR
+            TILE_DATA_1_START_ADDR - VRAM_REGION_START
         }
     }
 
@@ -344,9 +329,9 @@ impl Ppu {
     #[inline]
     fn win_map_area(&self) -> u16 {
         if is_set!(self.reg_lcdc, FLAG_LCDC_WIN_TMAP_AREA) {
-            TILE_MAP_1_START_ADDR
+            TILE_MAP_1_START_ADDR - VRAM_REGION_START
         } else {
-            TILE_MAP_0_START_ADDR
+            TILE_MAP_0_START_ADDR - VRAM_REGION_START
         }
     }
 
@@ -372,7 +357,6 @@ impl Ppu {
 
     /// Mode 2: OAM scanning
     fn handle_mode_oam(&mut self) {
-        trace_mode!("oam");
         if self.hdots == 1 {
             self.scan_sprites();
             // check if this line is a window_y trigger
@@ -401,7 +385,6 @@ impl Ppu {
 
     /// Mode 3: Drawing pixels
     fn handle_mode_xfer<S: Screen>(&mut self, screen: &mut S, it: &mut InterruptHandler) {
-        trace!("xfer");
         if self.pipeline.render_x < FRAME_WIDTH as u8 {
             self.render(screen);
         } else if self.hdots >= XFER_LIMIT_PERIOD {
@@ -415,7 +398,6 @@ impl Ppu {
 
     /// Mode 0: Handle HBlank
     fn handle_mode_hblank(&mut self, it: &mut InterruptHandler) {
-        trace!("hblank");
         if self.hdots >= HBLANK_LIMIT_PERIOD {
             self.inc_ly(it);
             // When the frame height is reached, switch to vblank mode
@@ -438,7 +420,6 @@ impl Ppu {
 
     /// Mode 1: Handle VBlank
     fn handle_mode_vblank<S: Screen>(&mut self, screen: &mut S, it: &mut InterruptHandler) {
-        trace!("vblank");
         if !self.pipeline.disabled && !self.is_lcd_enabled() {
             // disable ppu + next frame is white
             self.disable(screen);
@@ -473,7 +454,6 @@ impl Ppu {
             r: 0xFF,
             g: 0xFF,
             b: 0xFF,
-            a: 0xFF,
         };
         for y in 0..FRAME_HEIGHT {
             for x in 0..FRAME_WIDTH {
@@ -485,7 +465,7 @@ impl Ppu {
     /// Retrieve background tile index for the current X
     fn select_bg_tiles(&mut self) {
         let x = self.pipeline.fetch_x.wrapping_add(self.reg_scx) as u16 / 8;
-        let tile_index = self.read(self.bg_map_area() + self.pipeline.addr_y_offset + x);
+        let tile_index = self.vram[(self.bg_map_area() + self.pipeline.addr_y_offset + x) as usize];
         let offset = if is_not_set!(self.reg_lcdc, FLAG_LCDC_BGWIN_TDATA_AREA) {
             128u8
         } else {
@@ -499,11 +479,11 @@ impl Ppu {
         if self.reg_wx < (FRAME_WIDTH as u8 + 7)
             && self.reg_wy < (FRAME_HEIGHT as u8)
             && self.pipeline.win_y_triggered
-            && (self.pipeline.fetch_x + 7) >= self.reg_wx
+            && self.reg_wx <= (self.pipeline.fetch_x + 7)
         {
             let tile_y = self.pipeline.win_ly as u16 / 8;
             let addr = (self.pipeline.fetch_x as u16 + 7 - self.reg_wx as u16) / 8 + tile_y * 32;
-            let tile_index = self.read(self.win_map_area() + addr);
+            let tile_index = self.vram[(self.win_map_area() + addr) as usize];
             let offset = if is_not_set!(self.reg_lcdc, FLAG_LCDC_BGWIN_TDATA_AREA) {
                 128u8
             } else {
@@ -514,13 +494,13 @@ impl Ppu {
     }
 
     /// Retrieve the current background/window tile data
-    fn load_bgwin_data(&mut self, offset: u16) {
+    fn load_bgwin_data(&mut self, offset: bool) {
         let tile_index = self.pipeline.bgw_data[0];
         let addr = self.bgwin_data_area()
             + tile_index as u16 * 16
             + self.pipeline.tile_y as u16 * 2
-            + offset;
-        self.pipeline.bgw_data[1 + offset as usize] = self.read(addr);
+            + offset as u16;
+        self.pipeline.bgw_data[1 + offset as usize] = self.vram[addr as usize];
     }
 
     /// Scan for max 10 sprites in the current scan line
@@ -531,16 +511,16 @@ impl Ppu {
         self.pipeline.init_sprites();
 
         // Check for each sprite matching the current line in the oam (limit to 10)
-        for i in (0..OAM_REGION_SIZE).step_by(4) {
-            let y = self.oam[i];
-            let x = self.oam[i + 1];
-            let tile_index = self.oam[i + 2];
-            let attrs = self.oam[i + 3];
+        for chunk in self.oam.chunks_exact(4) {
+            let y = chunk[0];
+            let x = chunk[1];
+            let tile_index = chunk[2];
+            let attrs = chunk[3];
 
-            if rel_y >= y && rel_y < y + obj_size {
+            if (y..y + obj_size).contains(&rel_y) {
                 self.pipeline
                     .push_sprite(Sprite::new(x, y, tile_index, attrs));
-                if self.pipeline.obj_count >= 10 {
+                if self.pipeline.obj_list.is_full() {
                     break;
                 }
             }
@@ -552,22 +532,37 @@ impl Ppu {
     /// Retrieve sprite tile index(es) for the current X
     fn select_sprites(&mut self) {
         let offset = (self.reg_scx % 8) as i16;
-        self.pipeline.obj_fetched_count = 0;
+        self.pipeline.obj_fetched.clear();
+        let obj_size = self.obj_size();
 
-        for i in 0..(self.pipeline.obj_count as usize) {
-            let obj = &self.pipeline.obj_list[i];
+        for (i, obj) in self.pipeline.obj_list.iter().enumerate() {
             let rel_x = (obj.x as i16).wrapping_sub(8).wrapping_add(offset);
             let rel_x1 = rel_x.wrapping_add(8);
             let fetch_x1 = (self.pipeline.fetch_x as i16).wrapping_add(8);
 
-            if (rel_x >= self.pipeline.fetch_x as i16 && rel_x < fetch_x1)
-                || (rel_x1 >= self.pipeline.fetch_x as i16 && rel_x1 < fetch_x1)
+            if (self.pipeline.fetch_x as i16..fetch_x1).contains(&rel_x)
+                || (self.pipeline.fetch_x as i16..fetch_x1).contains(&rel_x1)
             {
-                self.pipeline.obj_fetched_idx[self.pipeline.obj_fetched_count as usize] = i as u8;
-                self.pipeline.obj_fetched_count += 1;
+                let tile_y = if obj.is_y_flipped() {
+                    ((obj_size * 2) - 2) - ((self.reg_ly + 16) - obj.y) * 2
+                } else {
+                    ((self.reg_ly + 16) - obj.y) * 2
+                } as u16;
+                let tile_index = if obj_size == 16 {
+                    obj.tile_index & 0xFE
+                } else {
+                    obj.tile_index
+                };
+                let addr = (tile_index as u16 * 16) + tile_y + offset as u16;
+
+                let _ = self.pipeline.obj_fetched.push(Obj {
+                    index: i as u8,
+                    addr,
+                    obj_data: [0, 0],
+                });
                 // There cannot be more than 3 sprites to appear within 8 pixels
                 // left + middle + right
-                if self.pipeline.obj_fetched_count >= 3 {
+                if self.pipeline.obj_fetched.is_full() {
                     break;
                 }
             }
@@ -575,23 +570,10 @@ impl Ppu {
     }
 
     /// Retrieve sprite tile data
-    fn load_sprite_data(&mut self, offset: u16) {
-        let obj_size = self.obj_size();
-
-        for i in 0..(self.pipeline.obj_fetched_count as usize) {
-            let obj = &self.pipeline.obj_list[self.pipeline.obj_fetched_idx[i] as usize];
-            let tile_y = if obj.is_y_flipped() {
-                ((obj_size * 2) - 2) - ((self.reg_ly + 16) - obj.y) * 2
-            } else {
-                ((self.reg_ly + 16) - obj.y) * 2
-            } as u16;
-            let tile_index = if obj_size == 16 {
-                obj.tile_index & 0xFE
-            } else {
-                obj.tile_index
-            };
-            let addr = TILE_DATA_0_START_ADDR + (tile_index as u16 * 16) + tile_y + offset;
-            self.pipeline.obj_data[i * 2 + offset as usize] = self.read(addr);
+    fn load_sprite_data(&mut self, offset: bool) {
+        for fetched_obj in &mut self.pipeline.obj_fetched {
+            fetched_obj.obj_data[offset as usize] =
+                self.vram[fetched_obj.addr as usize + offset as usize];
         }
     }
 
@@ -619,8 +601,8 @@ impl Ppu {
 
             // Check sprites if enabled
             if self.is_obj_enabled() {
-                for j in 0..(self.pipeline.obj_fetched_count as usize) {
-                    let obj = self.pipeline.obj_list[self.pipeline.obj_fetched_idx[j] as usize];
+                for fetched_obj in &self.pipeline.obj_fetched {
+                    let obj = self.pipeline.obj_list[fetched_obj.index as usize];
                     let rel_x = (obj.x as i16)
                         .wrapping_sub(8)
                         .wrapping_add((self.reg_scx % 8) as i16);
@@ -638,8 +620,7 @@ impl Ppu {
                     } else {
                         7 - offset
                     };
-                    let obj_low = self.pipeline.obj_data[j * 2];
-                    let obj_high = self.pipeline.obj_data[j * 2 + 1];
+                    let [obj_low, obj_high] = &fetched_obj.obj_data;
                     let obj_color_id = color_id!(obj_low, obj_high, bit);
 
                     if obj_color_id == 0 {
@@ -656,7 +637,7 @@ impl Ppu {
                     }
                 }
             }
-            self.pipeline.bgw_fifo.push(pixel);
+            let _ = self.pipeline.bgw_fifo.push_back(pixel);
             self.pipeline.fetch_x += 1;
         }
     }
@@ -666,9 +647,8 @@ impl Ppu {
         if !self.pipeline.disabled {
             self.fetch_pixel_row();
 
-            if self.pipeline.bgw_fifo.size() > 0 {
-                let px = self.pipeline.bgw_fifo.pop();
-                if self.pipeline.lx >= (self.reg_scx % 8) {
+            if let Some(px) = self.pipeline.bgw_fifo.pop_front() {
+                if (self.reg_scx % 8) <= self.pipeline.lx {
                     screen.set_pixel(&px, self.pipeline.render_x, self.reg_ly);
                     self.pipeline.render_x += 1;
                 }
@@ -706,13 +686,13 @@ impl Ppu {
                 self.pipeline.state = FetchState::TileDataLow;
             }
             FetchState::TileDataLow => {
-                self.load_bgwin_data(0);
-                self.load_sprite_data(0);
+                self.load_bgwin_data(false);
+                self.load_sprite_data(false);
                 self.pipeline.state = FetchState::TileDataHigh;
             }
             FetchState::TileDataHigh => {
-                self.load_bgwin_data(1);
-                self.load_sprite_data(1);
+                self.load_bgwin_data(true);
+                self.load_sprite_data(true);
                 self.pipeline.state = FetchState::Sleep;
             }
             FetchState::Sleep => {
@@ -731,10 +711,16 @@ impl Ppu {
 impl MemoryRegion for Ppu {
     fn read(&self, address: u16) -> u8 {
         match address {
-            VRAM_REGION_START..=VRAM_REGION_END => {
-                self.vram[(address - VRAM_REGION_START) as usize]
-            }
-            OAM_REGION_START..=OAM_REGION_END => self.oam[(address - OAM_REGION_START) as usize],
+            VRAM_REGION_START..=VRAM_REGION_END => unsafe {
+                *self
+                    .vram
+                    .get_unchecked((address - VRAM_REGION_START) as usize)
+            },
+            OAM_REGION_START..=OAM_REGION_END => unsafe {
+                *self
+                    .oam
+                    .get_unchecked((address - OAM_REGION_START) as usize)
+            },
             REG_LCDC_ADDR => self.reg_lcdc,
             REG_STAT_ADDR => self.reg_stat,
             REG_SCY_ADDR => self.reg_scy,
@@ -753,12 +739,16 @@ impl MemoryRegion for Ppu {
 
     fn write(&mut self, address: u16, value: u8) {
         match address {
-            VRAM_REGION_START..=VRAM_REGION_END => {
-                self.vram[(address - VRAM_REGION_START) as usize] = value
-            }
-            OAM_REGION_START..=OAM_REGION_END => {
-                self.oam[(address - OAM_REGION_START) as usize] = value;
-            }
+            VRAM_REGION_START..=VRAM_REGION_END => unsafe {
+                *self
+                    .vram
+                    .get_unchecked_mut((address - VRAM_REGION_START) as usize) = value;
+            },
+            OAM_REGION_START..=OAM_REGION_END => unsafe {
+                *self
+                    .oam
+                    .get_unchecked_mut((address - OAM_REGION_START) as usize) = value;
+            },
             REG_LCDC_ADDR => self.reg_lcdc = value,
             // bit 2, 1 and 0 are readonly
             REG_STAT_ADDR => self.reg_stat = (value & 0xF8) | (self.reg_stat & 0x07),

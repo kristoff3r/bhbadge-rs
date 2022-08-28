@@ -17,3 +17,4 @@ maintenance = { status = "actively-developed" }
 log = { version = "0.4", features = ["max_level_trace", "release_max_level_info"] }
 enum_dispatch = "0.3.8"
 defmt = "0.3.2"
+heapless = "0.7.16"

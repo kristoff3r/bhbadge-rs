@@ -91,7 +91,6 @@ mod bitops;
 
 mod apu;
 mod bus;
-mod collections;
 mod cpu;
 mod error;
 mod interrupt;
