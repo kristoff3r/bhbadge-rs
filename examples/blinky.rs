@@ -3,18 +3,16 @@
 
 use bhbadge::usb_serial::UsbManager;
 use bhboard_2023 as bsp;
-use bsp::{
-    entry,
-    hal::{
-        clocks::{init_clocks_and_plls, Clock},
-        pac,
-        sio::Sio,
-        watchdog::Watchdog,
-    },
-};
+use bsp::entry;
 use embedded_hal::digital::v2::OutputPin;
 use embedded_time::fixed_point::FixedPoint;
-use rp2040_hal::gpio::PushPull;
+use rp2040_hal::{
+    clocks::{init_clocks_and_plls, Clock},
+    gpio::PushPull,
+    pac,
+    sio::Sio,
+    watchdog::Watchdog,
+};
 
 #[entry]
 fn main() -> ! {
