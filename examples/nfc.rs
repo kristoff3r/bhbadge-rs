@@ -5,19 +5,18 @@ use bhbadge::usb_serial::UsbManager;
 use bhboard_2023 as bsp;
 use bsp::{entry, Gp4I2C0Sda, Gp5I2C0Scl};
 use cortex_m::delay::Delay;
+use defmt::Format;
 use embedded_hal::{
     digital::v2::{InputPin, OutputPin},
     prelude::{_embedded_hal_blocking_i2c_Read, _embedded_hal_blocking_i2c_Write},
 };
 use embedded_time::{fixed_point::FixedPoint, rate::Extensions};
+use heapless::Vec;
 use rp2040_hal::{
     clocks::{init_clocks_and_plls, Clock},
-    gpio::PushPull,
     i2c,
-    multicore::Multicore,
     pac::{self, I2C0},
     sio::Sio,
-    spi,
     watchdog::Watchdog,
     I2C,
 };
@@ -63,7 +62,7 @@ fn main() -> ! {
 
     delay.delay_ms(1000);
 
-    let mut i2c = i2c::I2C::i2c0(
+    let i2c = i2c::I2C::i2c0(
         pac.I2C0,
         pins.sda.into_mode(),
         pins.scl.into_mode(),
@@ -110,13 +109,20 @@ impl Pn7150 {
         self.i2c.write(READ_WRITE_ADDR, data)
     }
 
-    pub fn read_data<'a>(&mut self, buf: &'a mut [u8; 255]) -> Result<Option<u8>, i2c::Error> {
+    pub fn read_data(&mut self) -> Result<Option<Message>, i2c::Error> {
         if self.has_message() {
-            let mut len = [0; 3];
-            self.i2c.read(READ_WRITE_ADDR, &mut len)?;
-            let len = len[2];
+            let mut header = [0; 3];
+            let mut buf = [0; 255];
+
+            self.i2c.read(READ_WRITE_ADDR, &mut header)?;
+            let len = header[2];
+
             self.i2c.read(READ_WRITE_ADDR, &mut buf[..len as usize])?;
-            Ok(Some(len))
+
+            Ok(Some(Message {
+                header: [header[0], header[1]],
+                msg: Vec::from_slice(&buf[..len as usize]).unwrap(),
+            }))
         } else {
             Ok(None)
         }
@@ -124,13 +130,16 @@ impl Pn7150 {
 
     pub fn connect_nci(&mut self, delay: &mut Delay) {
         defmt::debug!("connect_nci");
-        let mut buf = [0; 255];
         let mut ready = false;
         for _ in 0..3 {
-            if let Ok(msg) = self.wakeup_nci(&mut buf) {
-                ready = true;
-                defmt::debug!("MESSAGE: {:?}", msg);
-                break;
+            if let Ok(msg) = self.wakeup_nci() {
+                if msg.header == [0x40, 0] {
+                    ready = true;
+                    defmt::debug!("MESSAGE: {:?}", msg.msg.as_slice());
+                    break;
+                } else {
+                    defmt::debug!("WRONG HEADER: {:?}", msg);
+                }
             }
             delay.delay_ms(500);
         }
@@ -139,12 +148,18 @@ impl Pn7150 {
         }
     }
 
-    fn wakeup_nci<'a>(&mut self, buf: &'a mut [u8; 255]) -> Result<&'a [u8], i2c::Error> {
+    fn wakeup_nci<'a>(&mut self) -> Result<Message, i2c::Error> {
         self.write_data(&[0x20, 0x00, 0x01, 0x01])?;
         loop {
-            if let Some(len) = self.read_data(buf)? {
-                return Ok(&buf[..len as usize]);
+            if let Some(msg) = self.read_data()? {
+                return Ok(msg);
             }
         }
     }
+}
+
+#[derive(Format)]
+pub struct Message {
+    pub header: [u8; 2],
+    pub msg: Vec<u8, 255>,
 }

@@ -26,6 +26,7 @@ usb-device = "0.2.9"
 display-interface = "0.4.0"
 display-interface-spi = "0.4.0"
 critical-section = "0.2.7"
+heapless = { version = "0.7.6", features = ["defmt-impl"] }
 
 bhboard_2022 = { path = "crates/boards/bhboard-2022" }
 bhboard_2023 = { path = "crates/boards/bhboard-2023" }
