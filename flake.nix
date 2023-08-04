@@ -16,7 +16,6 @@
       connect-to-console = pkgs.writeScriptBin "connect-to-console" ''
         #!/usr/bin/env bash
 
-        sudo echo Connecting to console
         sudo ${pythonWithSerial}/bin/python3 ${./serial.py} | ${self.packages."${system}".defmt-print}/bin/defmt-print -e ./target/thumbv6m-none-eabi/$1
       '';
 
