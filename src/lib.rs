@@ -4,6 +4,7 @@
 use core::panic::PanicInfo;
 
 pub mod color;
+pub mod nfc;
 pub mod spinlocks;
 pub mod usb_serial;
 pub mod usb_serial_defmt;
