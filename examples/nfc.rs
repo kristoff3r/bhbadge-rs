@@ -209,17 +209,19 @@ impl Pn7150 {
             let msg = self.read_data_timeout(delay, 15)?.unwrap();
             msg.validate([0x41, 0x03]);
 
+            delay.delay_ms(50);
+
             loop {
                 if let Some(msg) = self.read_data_timeout(delay, 15)? {
-                    if msg.header == [0x61, 0x05] {
+                    if msg.header[0] == 0x61 {
                         let card = Card::from_buf(&msg.msg);
-                        defmt::info!("Card: {:?}", card);
+                        defmt::info!("{:?}", card);
                         break;
                     }
                 }
             }
 
-            delay.delay_ms(10);
+            delay.delay_ms(50);
 
             self.write_data(NCI_RF_DEACTIVATE_CMD)?;
             let msg = self.read_data_timeout(delay, 15)?.unwrap();
