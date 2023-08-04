@@ -1,7 +1,7 @@
-use bhboard as bsp;
-use bsp::hal::{spi, spi::Enabled};
+use bhboard_2022 as bsp;
 use cortex_m::delay::Delay;
 use embedded_hal::digital::v2::OutputPin;
+use rp2040_hal::{spi, spi::Enabled};
 
 use crate::color::Pixel;
 
@@ -30,7 +30,6 @@ unsafe fn transmute_ref<T, U>(r: &T) -> &U {
     assert_eq!(core::mem::size_of::<T>(), core::mem::size_of::<U>());
     assert!(core::mem::align_of::<T>() >= core::mem::align_of::<U>());
     let ptr = r as *const T;
-    core::mem::forget(r);
     &*(ptr as *const U)
 }
 
@@ -38,7 +37,7 @@ unsafe fn transmute_mut_ref<T, U>(r: &mut T) -> &mut U {
     assert_eq!(core::mem::size_of::<T>(), core::mem::size_of::<U>());
     assert!(core::mem::align_of::<T>() >= core::mem::align_of::<U>());
     let ptr = r as *mut T;
-    core::mem::forget(r);
+    let _ = r;
     &mut *(ptr as *mut U)
 }
 

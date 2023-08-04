@@ -5,7 +5,11 @@ version = "0.1.0"
 
 [workspace]
 members = [
-  "crates/*",
+  "crates/boards/bhboard-2022",
+  "crates/boards/bhboard-2023",
+  "crates/display-interface",
+  "crates/padme-core",
+  "crates/st7735-rs",
 ]
 
 [dependencies]
@@ -23,7 +27,8 @@ display-interface = "0.4.0"
 display-interface-spi = "0.4.0"
 critical-section = "0.2.7"
 
-bhboard = { path = "crates/bhboard" }
+bhboard_2022 = { path = "crates/boards/bhboard-2022" }
+bhboard_2023 = { path = "crates/boards/bhboard-2023" }
 padme-core = { path = "crates/padme-core" }
 st7735 = { path = "crates/st7735-rs" }
 

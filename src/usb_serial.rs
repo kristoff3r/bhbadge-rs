@@ -1,9 +1,9 @@
-use bhboard as bsp;
-use bsp::{
-    hal::{pac, pac::interrupt, usb},
-    pac::{RESETS, USBCTRL_DPRAM, USBCTRL_REGS},
+use rp2040_hal::{
+    clocks::UsbClock,
+    pac::interrupt,
+    pac::{self, RESETS, USBCTRL_DPRAM, USBCTRL_REGS},
+    usb::{self, UsbBus},
 };
-use rp2040_hal::{clocks::UsbClock, usb::UsbBus};
 use usb_device::{
     class_prelude::UsbBusAllocator,
     prelude::{UsbDevice, UsbDeviceBuilder, UsbVidPid},

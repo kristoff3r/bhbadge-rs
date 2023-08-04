@@ -1,30 +1,19 @@
 #![no_std]
 #![no_main]
 
-use bhbadge::{
-    color::Color,
-    display::{DisplayBuffer, DisplayDevice, RawDisplayBuffer},
-    get_current_dma_done, init_dma, send_and_clear_buffer, set_clear_color,
-    usb_serial::UsbManager,
-    wait_for_dma_done, LedAndButtons, CLEAR_CHANNEL,
-};
-
-use bhboard as bsp;
+use bhbadge::usb_serial::UsbManager;
+use bhboard_2023 as bsp;
 use bsp::{
     entry,
     hal::{
         clocks::{init_clocks_and_plls, Clock},
-        pac, pwm,
+        pac,
         sio::Sio,
-        spi,
         watchdog::Watchdog,
     },
 };
-use embedded_hal::{
-    digital::v2::{InputPin, OutputPin},
-    PwmPin,
-};
-use embedded_time::{fixed_point::FixedPoint, rate::Extensions};
+use embedded_hal::digital::v2::OutputPin;
+use embedded_time::fixed_point::FixedPoint;
 use rp2040_hal::gpio::PushPull;
 
 #[entry]
@@ -45,7 +34,7 @@ fn main() -> ! {
     )
     .ok()
     .unwrap();
-    let mut delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().integer());
+    let _delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().integer());
 
     // Initialize the USB early to get debug information up and running
     // It still takes around 800ms after this point before messages start
@@ -64,34 +53,19 @@ fn main() -> ! {
         &mut pac.RESETS,
     );
 
-    let mut led = pins.led.into_mode::<rp2040_hal::gpio::Output<PushPull>>();
+    let mut led = pins.led0.into_mode::<rp2040_hal::gpio::Output<PushPull>>();
     let mut counter = 0u32;
     let mut is_high = false;
     loop {
         if counter & 0xffffff == 0 {
             defmt::debug!("Frame count: {}", counter);
             if is_high {
-                led.set_low();
+                led.set_low().unwrap();
             } else {
-                led.set_high();
+                led.set_high().unwrap();
             }
             is_high ^= true;
         }
         counter = counter.wrapping_add(1);
-    }
-}
-
-fn update_input(x: &mut usize, y: &mut usize, led_and_buttons: &LedAndButtons) {
-    if led_and_buttons.button_a.is_high().unwrap_or(false) {
-        *y = (*y + 160 + 1) % 160;
-    }
-    if led_and_buttons.button_b.is_high().unwrap_or(false) {
-        *y = (*y + 160 - 1) % 160;
-    }
-    if led_and_buttons.button_x.is_high().unwrap_or(false) {
-        *x = (*x + 128 + 1) % 128;
-    }
-    if led_and_buttons.button_y.is_high().unwrap_or(false) {
-        *x = (*x + 128 - 1) % 128;
     }
 }

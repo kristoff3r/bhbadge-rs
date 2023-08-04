@@ -1,11 +1,9 @@
 #![no_std]
 
-pub extern crate rp2040_hal as hal;
-
 #[cfg(feature = "rt")]
 extern crate cortex_m_rt;
 #[cfg(feature = "rt")]
-pub use hal::entry;
+pub use rp2040_hal::entry;
 
 /// The linker will place this boot block at the start of our program image. We
 /// need this to help the ROM bootloader get our code up and running.
@@ -15,9 +13,9 @@ pub use hal::entry;
 #[used]
 pub static BOOT2_FIRMWARE: [u8; 256] = rp2040_boot2::BOOT_LOADER_W25Q080;
 
-pub use hal::pac;
+pub use rp2040_hal::pac;
 
-hal::bsp_pins!(
+rp2040_hal::bsp_pins!(
     Gpio0 {
         name: tx1,
         aliases: {
