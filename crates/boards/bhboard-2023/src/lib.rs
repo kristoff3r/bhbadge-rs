@@ -29,13 +29,13 @@ rp2040_hal::bsp_pins!(
         }
     },
     Gpio4 {
-        name: pn7150_sda,
+        name: sda,
         aliases: {
             FunctionI2C: Gp4I2C0Sda
         }
     },
     Gpio5 {
-        name: pn7150_scl,
+        name: scl,
         aliases: {
             FunctionI2C: Gp5I2C0Scl
         }
@@ -43,13 +43,13 @@ rp2040_hal::bsp_pins!(
     Gpio6 {
         name: pn7150_irq,
         aliases: {
-            PushPullOutput: PnIrq
+            FloatingInput: PnIrq
         }
     },
     Gpio7 {
-        name: pn7150_ven,
+        name: pn7150_enable,
         aliases: {
-            PushPullOutput: PnVen
+            PushPullOutput: PnEnable
         }
     },
     Gpio13 {

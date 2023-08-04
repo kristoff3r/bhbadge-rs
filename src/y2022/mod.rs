@@ -158,19 +158,6 @@ pub fn wait_for_dma_done(channel: u8, expected: bool) {
     }
 }
 
-#[panic_handler]
-fn panic(info: &PanicInfo) -> ! {
-    defmt::error!("{}", defmt::Display2Format(info));
-    defmt_panic();
-}
-
-#[defmt::panic_handler]
-fn defmt_panic() -> ! {
-    loop {
-        cortex_m::asm::wfi();
-    }
-}
-
 static DMA_DONE: AtomicU16 = AtomicU16::new(0);
 
 #[interrupt]

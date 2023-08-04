@@ -32,7 +32,7 @@ fn main() -> ! {
     )
     .ok()
     .unwrap();
-    let _delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().integer());
+    let mut delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().integer());
 
     // Initialize the USB early to get debug information up and running
     // It still takes around 800ms after this point before messages start
@@ -52,18 +52,10 @@ fn main() -> ! {
     );
 
     let mut led = pins.led0.into_mode::<rp2040_hal::gpio::Output<PushPull>>();
-    let mut counter = 0u32;
-    let mut is_high = false;
     loop {
-        if counter & 0xffffff == 0 {
-            defmt::debug!("Frame count: {}", counter);
-            if is_high {
-                led.set_low().unwrap();
-            } else {
-                led.set_high().unwrap();
-            }
-            is_high ^= true;
-        }
-        counter = counter.wrapping_add(1);
+        led.set_low().unwrap();
+        delay.delay_ms(500);
+        led.set_high().unwrap();
+        delay.delay_ms(500);
     }
 }
