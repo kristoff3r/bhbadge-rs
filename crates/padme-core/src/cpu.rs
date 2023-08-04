@@ -3041,7 +3041,7 @@ impl Cpu {
                 self.set_flag(FLAG_SUBSTRACT, false);
                 self.set_flag(FLAG_CARRY, (r & 0xFF) < (self.sp & 0xFF));
                 self.set_flag(FLAG_HALF_CARRY, (r & 0xF) < (self.sp & 0xF));
-                self.sp = r as u16;
+                self.sp = r;
                 16
             }
             // INC rr

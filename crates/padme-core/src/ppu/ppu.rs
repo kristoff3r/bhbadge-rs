@@ -629,7 +629,7 @@ impl Ppu {
                     if rel_x.wrapping_add(8) < self.pipeline.fetch_x as i16 {
                         continue;
                     }
-                    let offset = self.pipeline.fetch_x as i16 - rel_x as i16;
+                    let offset = self.pipeline.fetch_x as i16 - rel_x;
                     if !(0..=7).contains(&offset) {
                         continue;
                     }

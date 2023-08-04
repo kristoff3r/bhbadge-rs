@@ -168,7 +168,7 @@ impl WaveModulation for Channel3 {
 
 impl DigitalAmplitude for Channel3 {
     fn digital_amplitude(&self) -> u8 {
-        let sample = self.wave_sample() as u8;
+        let sample = self.wave_sample();
         let volume_shift = match self.output_level() {
             0x00 => 4,
             0x01 => 0,
