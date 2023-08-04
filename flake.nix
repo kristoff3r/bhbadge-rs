@@ -1,6 +1,6 @@
 {
   inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-23.05";
     rust-overlay.url = "github:oxalica/rust-overlay";
   };
 
@@ -31,7 +31,7 @@
             #    https://discourse.nixos.org/t/interactive-bash-with-nix-develop-flake/15486
             bashInteractive
 
-            # rust. compile to wasm and linux
+            # Rust
             (rust-bin.stable.latest.default.override {
               extensions = [ "rust-src" ];
               targets = [ "thumbv6m-none-eabi" ];
