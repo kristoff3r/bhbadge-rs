@@ -1,7 +1,7 @@
 use bhboard_2023 as bsp;
 use bsp::{Gp4I2C0Sda, Gp5I2C0Scl};
 use cortex_m::delay::Delay;
-use defmt::{assert, panic, Format};
+use defmt::{assert, assert_eq, panic, Format};
 use embedded_hal::{
     digital::v2::{InputPin, OutputPin},
     prelude::{_embedded_hal_blocking_i2c_Read, _embedded_hal_blocking_i2c_Write},
@@ -82,6 +82,7 @@ impl Pn7150 {
         self.write_data(&Packet::new_command_packet(0xf, 2, Vec::new()))?;
         let msg = self.read_data_timeout(delay, 15)?.unwrap();
         msg.header.assert_response(0xf, 2);
+        assert!(msg.payload[0] == 0);
         defmt::info!("BUILD NUMBER: {}", &msg.payload[1..]);
 
         Ok(())
@@ -141,7 +142,7 @@ impl Pn7150 {
         Ok(())
     }
 
-    pub fn wait_for_card(&mut self) -> Result<(), i2c::Error> {
+    pub fn wait_for_card(&mut self) -> Result<Card, i2c::Error> {
         loop {
             if let Some(msg) = self.read_data()? {
                 if let Some(header) = msg.header.as_notification_header() {
@@ -149,21 +150,23 @@ impl Pn7150 {
                     if header.gid == 1 {
                         let card = Card::from_buf(&msg.payload);
                         defmt::info!("{:?}", card);
-                        break;
+                        return Ok(card);
                     }
                 }
             }
         }
+    }
 
+    pub fn send_data_command(&mut self, conn_id: u8, payload: &[u8]) -> Result<(), i2c::Error> {
+        defmt::info!("Sending card command with payload: {}", payload);
+        self.write_data(&Packet::new_data_packet(conn_id, payload))?;
         Ok(())
     }
 
-    pub fn send_card_command(&mut self, payload: &[u8]) -> Result<Vec<u8, 255>, i2c::Error> {
-        defmt::info!("Sending card command with payload: {}", payload);
-        self.write_data(&Packet::new_data_packet(0, payload))?;
+    pub fn read_data_command(&mut self, conn_id: u8) -> Result<Vec<u8, 255>, i2c::Error> {
         loop {
             if let Some(packet) = self.read_data()? {
-                if packet.header.is_data_with_conn_id(0) {
+                if packet.header.is_data_with_conn_id(conn_id) {
                     defmt::info!("Got expected packet: {}", packet);
                     return Ok(packet.payload);
                 } else {
@@ -171,17 +174,6 @@ impl Pn7150 {
                 }
             }
         }
-    }
-
-    pub fn cmd_discover_cmd(&mut self, delay: &mut Delay) -> Result<(), i2c::Error> {
-        self.write_data(&Packet::new_command_packet(
-            1,
-            3,
-            Vec::from_slice(b"\x04\x00\x01\x02\x01\x01\x01\x06\x01").unwrap(),
-        ))?;
-        let msg = self.read_data_timeout(delay, 15)?.unwrap();
-        msg.header.assert_response(1, 3);
-        Ok(())
     }
 
     pub fn cmd_discover_map(&mut self, delay: &mut Delay) -> Result<(), i2c::Error> {
@@ -193,6 +185,20 @@ impl Pn7150 {
         ))?;
         let msg = self.read_data_timeout(delay, 15)?.unwrap();
         msg.header.assert_response(1, 0);
+        assert_eq!(msg.payload.as_slice(), &[0]);
+
+        Ok(())
+    }
+
+    pub fn cmd_discover_cmd(&mut self, delay: &mut Delay) -> Result<(), i2c::Error> {
+        self.write_data(&Packet::new_command_packet(
+            1,
+            3,
+            Vec::from_slice(b"\x04\x00\x01\x02\x01\x01\x01\x06\x01").unwrap(),
+        ))?;
+        let msg = self.read_data_timeout(delay, 15)?.unwrap();
+        msg.header.assert_response(1, 3);
+        assert_eq!(msg.payload.as_slice(), &[0]);
         Ok(())
     }
 
@@ -220,6 +226,23 @@ impl Pn7150 {
                 return Ok(msg);
             }
         }
+    }
+
+    pub fn discover_select_cmd(
+        &mut self,
+        delay: &mut Delay,
+        card: &Card,
+    ) -> Result<(), i2c::Error> {
+        self.write_data(&Packet::new_command_packet(
+            1,
+            4,
+            Vec::from_slice(&[card.id, card.protocol, card.interface]).unwrap(),
+        ))?;
+        let msg = self.read_data_timeout(delay, 15)?.unwrap();
+        msg.header.assert_response(1, 4);
+        assert_eq!(msg.payload.as_slice(), &[0]);
+
+        Ok(())
     }
 }
 

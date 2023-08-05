@@ -7,6 +7,7 @@ use bsp::entry;
 use cortex_m::delay::Delay;
 use fugit::RateExtU32;
 
+use heapless::Vec;
 use rp2040_hal::{
     clocks::{init_clocks_and_plls, Clock},
     i2c,
@@ -82,31 +83,35 @@ fn read_card(pn7150: &mut Pn7150, delay: &mut Delay) -> Result<(), i2c::Error> {
     pn7150.cmd_discover_map(delay)?;
 
     const BLK_NB_MFC: u8 = 4;
+
     loop {
         pn7150.cmd_discover_cmd(delay)?;
 
         delay.delay_ms(50);
 
-        pn7150.wait_for_card()?;
+        let card = pn7150.wait_for_card()?;
 
         delay.delay_ms(50);
 
-        pn7150.send_card_command(&[
-            0x40,
-            BLK_NB_MFC / 4,
-            0x10,
-            0xff,
-            0xff,
-            0xff,
-            0xff,
-            0xff,
-            0xff,
-        ])?;
+        let mut v: Vec<u8, 2048> = Vec::new();
+
+        for n in 0..(2048 / 16) {
+            pn7150.send_data_command(0, &[0x30, n as u8])?;
+            loop {
+                if let Some(msg) = pn7150.read_data_timeout(delay, 500)? {
+                    if msg.header.is_data_with_conn_id(0) {
+                        v.extend_from_slice(&msg.payload[..16]).unwrap();
+                        break;
+                    }
+                }
+            }
+        }
+        defmt::info!("{}", v);
+
+        delay.delay_ms(50);
 
         pn7150.cmd_deactivate(delay)?;
 
-        pn7150.send_card_command(&[0x10, 0x00, BLK_NB_MFC])?;
-
-        delay.delay_ms(500);
+        delay.delay_ms(2000);
     }
 }
