@@ -79,7 +79,7 @@ impl Pn7150 {
     }
 
     pub fn cmd_prop_act(&mut self, delay: &mut Delay) -> Result<(), i2c::Error> {
-        self.write_data(&Packet::new_command(0xf, 2, Vec::new()))?;
+        self.write_data(&Packet::new_command_packet(0xf, 2, Vec::new()))?;
         let msg = self.read_data_timeout(delay, 15)?.unwrap();
         msg.header.assert_response(0xf, 2);
         defmt::info!("BUILD NUMBER: {}", &msg.payload[1..]);
@@ -131,7 +131,7 @@ impl Pn7150 {
     }
 
     pub fn cmd_deactivate(&mut self, delay: &mut Delay) -> Result<(), i2c::Error> {
-        self.write_data(&Packet::new_command(
+        self.write_data(&Packet::new_command_packet(
             1,
             6,
             Vec::from_slice(b"\x00").unwrap(),
@@ -158,8 +158,23 @@ impl Pn7150 {
         Ok(())
     }
 
+    pub fn send_card_command(&mut self, payload: &[u8]) -> Result<Vec<u8, 255>, i2c::Error> {
+        defmt::info!("Sending card command with payload: {}", payload);
+        self.write_data(&Packet::new_data_packet(0, payload))?;
+        loop {
+            if let Some(packet) = self.read_data()? {
+                if packet.header.is_data_with_conn_id(0) {
+                    defmt::info!("Got expected packet: {}", packet);
+                    return Ok(packet.payload);
+                } else {
+                    defmt::info!("Unexpected packet: {}", packet);
+                }
+            }
+        }
+    }
+
     pub fn cmd_discover_cmd(&mut self, delay: &mut Delay) -> Result<(), i2c::Error> {
-        self.write_data(&Packet::new_command(
+        self.write_data(&Packet::new_command_packet(
             1,
             3,
             Vec::from_slice(b"\x04\x00\x01\x02\x01\x01\x01\x06\x01").unwrap(),
@@ -170,7 +185,7 @@ impl Pn7150 {
     }
 
     pub fn cmd_discover_map(&mut self, delay: &mut Delay) -> Result<(), i2c::Error> {
-        self.write_data(&Packet::new_command(
+        self.write_data(&Packet::new_command_packet(
             1,
             0,
             Vec::from_slice(b"\x05\x01\x01\x01\x02\x01\x01\x03\x01\x01\x04\x01\x02\x80\x01\x80")
@@ -182,7 +197,7 @@ impl Pn7150 {
     }
 
     pub fn cmd_core_init(&mut self, delay: &mut Delay) -> Result<(), i2c::Error> {
-        self.write_data(&Packet::new_command(0, 1, Vec::new()))?;
+        self.write_data(&Packet::new_command_packet(0, 1, Vec::new()))?;
         let msg = self.read_data_timeout(delay, 15)?.unwrap();
         let nrf_int = msg.payload[5] as usize;
         defmt::info!(
@@ -195,7 +210,7 @@ impl Pn7150 {
     }
 
     pub fn wakeup_nci<'a>(&mut self) -> Result<Packet, i2c::Error> {
-        self.write_data(&Packet::new_command(
+        self.write_data(&Packet::new_command_packet(
             0,
             0,
             Vec::from_slice(b"\x01\x01").unwrap(),
@@ -332,6 +347,17 @@ impl PacketHeader {
         }
     }
 
+    pub fn is_data_with_conn_id(&self, conn_id: u8) -> bool {
+        self.as_data_header()
+            .map_or(false, |h| h.conn_id == conn_id)
+    }
+
+    pub fn is_response_with_info(&self, gid: u8, oid: u8) -> bool {
+        self.as_control_header().map_or(false, |h| {
+            h.message_type == ControlMessageType::Response && h.gid == gid && h.oid == oid
+        })
+    }
+
     pub fn as_notification_header(&self) -> Option<&ControlPacketHeader> {
         let h = self.as_control_header()?;
         if h.message_type == ControlMessageType::Notification {
@@ -387,7 +413,14 @@ impl Packet {
         }
     }
 
-    pub fn new_command(gid: u8, oid: u8, payload: Vec<u8, 255>) -> Self {
+    pub fn new_data_packet(conn_id: u8, payload: &[u8]) -> Self {
+        Self {
+            header: PacketHeader::Data(DataPacketHeader { conn_id }),
+            payload: Vec::from_slice(payload).unwrap(),
+        }
+    }
+
+    pub fn new_command_packet(gid: u8, oid: u8, payload: Vec<u8, 255>) -> Self {
         Self {
             header: PacketHeader::Control(ControlPacketHeader {
                 message_type: ControlMessageType::Command,

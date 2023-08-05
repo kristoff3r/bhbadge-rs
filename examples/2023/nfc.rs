@@ -80,6 +80,8 @@ fn main() -> ! {
 fn read_card(pn7150: &mut Pn7150, delay: &mut Delay) -> Result<(), i2c::Error> {
     pn7150.cmd_prop_act(delay)?;
     pn7150.cmd_discover_map(delay)?;
+
+    const BLK_NB_MFC: u8 = 4;
     loop {
         pn7150.cmd_discover_cmd(delay)?;
 
@@ -89,7 +91,21 @@ fn read_card(pn7150: &mut Pn7150, delay: &mut Delay) -> Result<(), i2c::Error> {
 
         delay.delay_ms(50);
 
+        pn7150.send_card_command(&[
+            0x40,
+            BLK_NB_MFC / 4,
+            0x10,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+        ])?;
+
         pn7150.cmd_deactivate(delay)?;
+
+        pn7150.send_card_command(&[0x10, 0x00, BLK_NB_MFC])?;
 
         delay.delay_ms(500);
     }
