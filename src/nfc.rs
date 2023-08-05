@@ -224,3 +224,77 @@ impl Card {
         }
     }
 }
+
+pub struct ControlPacket {
+    pub msg_type: MessageType,
+    /// Group Identifier
+    pub gid: u8,
+    /// Opcode Identifier
+    pub oid: u8,
+    pub payload: Vec<u8, 255>,
+}
+impl ControlPacket {
+    fn to_bytes(&self) -> Vec<u8, 258> {
+        let mut res = Vec::new();
+        res.push(((self.msg_type as u8) << 5) | self.gid).unwrap();
+        res.push(self.oid).unwrap();
+        res.push(self.payload.len() as u8).unwrap();
+        res.extend_from_slice(&self.payload).unwrap();
+        res
+    }
+
+    fn from_header_payload(header: [u8; 3], payload: Vec<u8, 255>) -> ControlPacket {
+        todo!()
+    }
+}
+
+pub struct DataPacket {
+    /// Connection Identifier
+    pub conn_id: u8,
+    pub payload: Vec<u8, 255>,
+}
+impl DataPacket {
+    fn to_bytes(&self) -> Vec<u8, 258> {
+        let mut res = Vec::new();
+        res.push(self.conn_id).unwrap();
+        res.push(0).unwrap();
+        res.push(self.payload.len() as u8).unwrap();
+        res.extend_from_slice(&self.payload).unwrap();
+        res
+    }
+
+    fn from_header_payload(header: [u8; 3], payload: Vec<u8, 255>) -> DataPacket {
+        todo!()
+    }
+}
+
+pub enum Packet {
+    Data(DataPacket),
+    Control(ControlPacket),
+}
+
+impl Packet {
+    pub fn to_bytes(&self) -> Vec<u8, 258> {
+        match self {
+            Packet::Data(p) => p.to_bytes(),
+            Packet::Control(p) => p.to_bytes(),
+        }
+    }
+
+    pub fn from_header_payload(header: [u8; 3], payload: Vec<u8, 255>) -> Self {
+        let msg_type = header[0] >> 5;
+        match msg_type {
+            0 => Packet::Data(DataPacket::from_header_payload(header, payload)),
+            1 | 2 | 3 => Packet::Control(ControlPacket::from_header_payload(header, payload)),
+            _ => panic!("Unknown packet type: {}", msg_type),
+        }
+    }
+}
+
+#[repr(u8)]
+#[derive(Copy, Clone)]
+pub enum MessageType {
+    Command = 1,
+    Response = 2,
+    Notification = 3,
+}
