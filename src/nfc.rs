@@ -49,12 +49,15 @@ impl Pn7150 {
         self.irq.is_high().unwrap()
     }
 
-    pub fn write_data(&mut self, data: &[u8]) -> Result<(), i2c::Error> {
+    pub fn write_data(&mut self, packet: &Packet) -> Result<(), i2c::Error> {
         while self.has_message() {
             let _ = self.read_data();
         }
-        defmt::debug!("write: {}", data);
-        self.i2c.write(READ_WRITE_ADDR, data)
+        defmt::debug!("write: {}", packet);
+        let mut out = Vec::new();
+        packet.to_bytes(&mut out);
+        self.i2c.write(READ_WRITE_ADDR, &out)?;
+        Ok(())
     }
 
     pub fn read_data(&mut self) -> Result<Option<Packet>, i2c::Error> {
@@ -76,7 +79,7 @@ impl Pn7150 {
     }
 
     pub fn cmd_prop_act(&mut self, delay: &mut Delay) -> Result<(), i2c::Error> {
-        self.write_data(NCI_PROP_ACT_CMD)?;
+        self.write_data(&Packet::new_command(0xf, 2, Vec::new()))?;
         let msg = self.read_data_timeout(delay, 15)?.unwrap();
         msg.header.assert_response(0xf, 2);
         defmt::info!("BUILD NUMBER: {}", &msg.payload[1..]);
@@ -128,7 +131,11 @@ impl Pn7150 {
     }
 
     pub fn cmd_deactivate(&mut self, delay: &mut Delay) -> Result<(), i2c::Error> {
-        self.write_data(NCI_RF_DEACTIVATE_CMD)?;
+        self.write_data(&Packet::new_command(
+            1,
+            6,
+            Vec::from_slice(b"\x00").unwrap(),
+        ))?;
         let msg = self.read_data_timeout(delay, 15)?.unwrap();
         msg.header.assert_response(1, 6);
         Ok(())
@@ -152,21 +159,30 @@ impl Pn7150 {
     }
 
     pub fn cmd_discover_cmd(&mut self, delay: &mut Delay) -> Result<(), i2c::Error> {
-        self.write_data(NCI_RF_DISCOVER_CMD_RW)?;
+        self.write_data(&Packet::new_command(
+            1,
+            3,
+            Vec::from_slice(b"\x04\x00\x01\x02\x01\x01\x01\x06\x01").unwrap(),
+        ))?;
         let msg = self.read_data_timeout(delay, 15)?.unwrap();
         msg.header.assert_response(1, 3);
         Ok(())
     }
 
     pub fn cmd_discover_map(&mut self, delay: &mut Delay) -> Result<(), i2c::Error> {
-        self.write_data(NCI_RF_DISCOVER_MAP_RW)?;
+        self.write_data(&Packet::new_command(
+            1,
+            0,
+            Vec::from_slice(b"\x05\x01\x01\x01\x02\x01\x01\x03\x01\x01\x04\x01\x02\x80\x01\x80")
+                .unwrap(),
+        ))?;
         let msg = self.read_data_timeout(delay, 15)?.unwrap();
         msg.header.assert_response(1, 0);
         Ok(())
     }
 
     pub fn cmd_core_init(&mut self, delay: &mut Delay) -> Result<(), i2c::Error> {
-        self.write_data(NCI_CORE_INIT_CMD)?;
+        self.write_data(&Packet::new_command(0, 1, Vec::new()))?;
         let msg = self.read_data_timeout(delay, 15)?.unwrap();
         let nrf_int = msg.payload[5] as usize;
         defmt::info!(
@@ -179,7 +195,11 @@ impl Pn7150 {
     }
 
     pub fn wakeup_nci<'a>(&mut self) -> Result<Packet, i2c::Error> {
-        self.write_data(NCI_CORE_RESET_CMD)?;
+        self.write_data(&Packet::new_command(
+            0,
+            0,
+            Vec::from_slice(b"\x01\x01").unwrap(),
+        ))?;
         loop {
             if let Some(msg) = self.read_data()? {
                 return Ok(msg);
@@ -364,6 +384,17 @@ impl Packet {
         Self {
             header: PacketHeader::from_header(header),
             payload: Vec::from_slice(payload).unwrap(),
+        }
+    }
+
+    pub fn new_command(gid: u8, oid: u8, payload: Vec<u8, 255>) -> Self {
+        Self {
+            header: PacketHeader::Control(ControlPacketHeader {
+                message_type: ControlMessageType::Command,
+                gid,
+                oid,
+            }),
+            payload,
         }
     }
 }
