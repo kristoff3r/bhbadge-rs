@@ -85,7 +85,7 @@ fn read_card(pn7150: &mut Pn7150, delay: &mut Delay) -> Result<(), i2c::Error> {
 
         delay.delay_ms(50);
 
-        pn7150.wait_for_card(delay)?;
+        pn7150.wait_for_card()?;
 
         delay.delay_ms(50);
 
