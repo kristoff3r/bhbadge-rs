@@ -51,6 +51,7 @@
             #
             # See also: nixpkgs#5131 nixpkgs#6091
             export SHELL=${bashInteractive}/bin/bash
+            # export CARGO_TARGET_THUMBV6M_NONE_EABI_RUNNER=${pkgs.probe-run}/bin/probe-run
           '';
         };
       packages."${system}".defmt-print = pkgs.callPackage ./defmt-print.nix {};

@@ -5,8 +5,8 @@ use bhbadge::{nfc::Pn7150, usb_serial::UsbManager};
 use bhboard_2023 as bsp;
 use bsp::entry;
 use cortex_m::delay::Delay;
+use fugit::RateExtU32;
 
-use embedded_time::{fixed_point::FixedPoint, rate::Extensions};
 use rp2040_hal::{
     clocks::{init_clocks_and_plls, Clock},
     i2c,
@@ -33,7 +33,7 @@ fn main() -> ! {
     )
     .ok()
     .unwrap();
-    let mut delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().integer());
+    let mut delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().to_Hz());
 
     // Initialize the USB early to get debug information up and running
     // It still takes around 800ms after this point before messages start
