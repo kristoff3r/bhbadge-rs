@@ -9,12 +9,13 @@ use bsp::{
 use cortex_m::delay::Delay;
 use embedded_hal::{digital::v2::OutputPin, spi::FullDuplex};
 use num_traits::cast::ToPrimitive;
-use rp2040_hal::dma::DREQ_SPI0_TX;
 use st7735::command::Instruction;
 
 use crate::color::Pixel;
 
 pub mod display;
+
+const DREQ_SPI0_TX: u8 = 16;
 
 pub const TX_CHANNEL: u8 = 0;
 pub const CLEAR_CHANNEL: u8 = 1;

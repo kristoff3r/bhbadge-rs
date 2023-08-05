@@ -5,7 +5,6 @@ use bhbadge::usb_serial::UsbManager;
 use bhboard_2023 as bsp;
 use bsp::entry;
 use embedded_hal::digital::v2::OutputPin;
-use embedded_time::fixed_point::FixedPoint;
 use rp2040_hal::{
     clocks::{init_clocks_and_plls, Clock},
     gpio::PushPull,
@@ -32,9 +31,9 @@ fn main() -> ! {
     )
     .ok()
     .unwrap();
-    let mut delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().integer());
+    let mut delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().to_Hz());
 
-    // Initialize the USB early to get debug information up and running
+    // Initialize the USB early to get deuse fugit::RateExtU32;bug information up and running
     // It still takes around 800ms after this point before messages start
     // showing up on the host
     UsbManager::init(

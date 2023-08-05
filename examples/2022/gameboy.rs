@@ -18,7 +18,7 @@ use embedded_hal::{
     digital::v2::{InputPin, OutputPin},
     PwmPin,
 };
-use embedded_time::{fixed_point::FixedPoint, rate::Extensions};
+use fugit::RateExtU32;
 use padme_core::{AudioSpeaker, Screen, SerialOutput};
 use rp2040_hal::{
     clocks::{init_clocks_and_plls, Clock},
@@ -67,7 +67,7 @@ fn main() -> ! {
     )
     .ok()
     .unwrap();
-    let mut delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().integer());
+    let mut delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().to_Hz());
 
     // Initialize the USB early to get debug information up and running
     // It still takes around 800ms after this point before messages start
@@ -108,7 +108,7 @@ fn main() -> ! {
     let spi = spi::Spi::<_, _, 8>::new(pac.SPI0).init(
         &mut pac.RESETS,
         clocks.peripheral_clock.freq(),
-        40_000_000u32.Hz(),
+        40_000_000_u32.Hz(),
         &embedded_hal::spi::MODE_0,
     );
 

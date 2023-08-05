@@ -1,7 +1,6 @@
 use rp2040_hal::{
     clocks::UsbClock,
-    pac::interrupt,
-    pac::{self, RESETS, USBCTRL_DPRAM, USBCTRL_REGS},
+    pac::{self, interrupt, RESETS, USBCTRL_DPRAM, USBCTRL_REGS},
     usb::{self, UsbBus},
 };
 use usb_device::{
