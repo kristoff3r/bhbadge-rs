@@ -1,3 +1,4 @@
+use critical_section::RestoreState;
 use defmt::global_logger;
 
 use crate::spinlocks::UsbSpinlock;
@@ -6,7 +7,7 @@ use crate::spinlocks::UsbSpinlock;
 struct GlobalUsbLogger;
 
 static mut ENCODER: defmt::Encoder = defmt::Encoder::new();
-static mut INTERRUPTS: u8 = 0;
+static mut INTERRUPTS: RestoreState = RestoreState::invalid();
 
 unsafe impl defmt::Logger for GlobalUsbLogger {
     fn acquire() {
