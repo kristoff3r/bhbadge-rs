@@ -3,23 +3,25 @@
 
 use bhbadge::{
     color::Color,
-    display::{DisplayBuffer, DisplayDevice, RawDisplayBuffer},
-    get_current_dma_done, init_dma, send_and_clear_buffer, set_clear_color,
     usb_serial::UsbManager,
-    wait_for_dma_done, LedAndButtons, CLEAR_CHANNEL,
-};
-
-use bhboard as bsp;
-use bsp::{
-    entry,
-    hal::{
-        clocks::{init_clocks_and_plls, Clock},
-        pac, pwm,
-        sio::Sio,
-        spi,
-        watchdog::Watchdog,
+    y2022::{
+        display::{DisplayBuffer, DisplayDevice, RawDisplayBuffer},
+        get_current_dma_done, init_dma, send_and_clear_buffer, set_clear_color, wait_for_dma_done,
+        LedAndButtons, CLEAR_CHANNEL,
     },
 };
+
+use bhboard_2022 as bsp;
+use bsp::entry;
+
+use rp2040_hal::{
+    clocks::{init_clocks_and_plls, Clock},
+    pac, pwm,
+    sio::Sio,
+    spi,
+    watchdog::Watchdog,
+};
+
 use embedded_hal::{
     digital::v2::{InputPin, OutputPin},
     PwmPin,

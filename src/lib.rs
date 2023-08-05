@@ -8,7 +8,7 @@ pub mod nfc;
 pub mod spinlocks;
 pub mod usb_serial;
 pub mod usb_serial_defmt;
-// pub mod y2022;
+pub mod y2022;
 
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {

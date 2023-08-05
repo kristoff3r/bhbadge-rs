@@ -35,11 +35,15 @@ st7735 = { path = "crates/st7735-rs" }
 
 [[example]]
 name = "gameboy"
-path = "examples/gameboy.rs"
+path = "examples/2022/gameboy.rs"
 
 [[example]]
 name = "square"
-path = "examples/square.rs"
+path = "examples/2022/square.rs"
+
+[[example]]
+name = "blinky"
+path = "examples/2023/blinky.rs"
 
 [profile.dev]
 codegen-units = 1

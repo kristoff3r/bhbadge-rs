@@ -3,26 +3,16 @@
 
 use core::convert::Into;
 
-use bhbadge::color::{Color, Pixel};
-use bhbadge::{display::RawDisplayBuffer, usb_serial::UsbManager};
-use bhbadge::{
+use bhbadge::color::Color;
+use bhbadge::usb_serial::UsbManager;
+use bhbadge::y2022::display::RawDisplayBuffer;
+use bhbadge::y2022::{
     display::{DisplayBuffer, DisplayDevice, RawSpi},
     get_current_dma_done, init_dma, send_and_clear_buffer, wait_for_dma_done, LedAndButtons,
     TX_CHANNEL,
 };
-use bhboard as bsp;
-use bsp::{
-    entry,
-    hal::{
-        clocks::{init_clocks_and_plls, Clock},
-        multicore::{Multicore, Stack},
-        pac, pwm,
-        sio::Sio,
-        spi,
-        watchdog::Watchdog,
-    },
-    pac::DMA,
-};
+use bhboard_2022 as bsp;
+use bsp::{entry, pac::DMA};
 use cortex_m::delay::Delay;
 use embedded_hal::{
     digital::v2::{InputPin, OutputPin},
@@ -30,6 +20,14 @@ use embedded_hal::{
 };
 use embedded_time::{fixed_point::FixedPoint, rate::Extensions};
 use padme_core::{AudioSpeaker, Screen, SerialOutput};
+use rp2040_hal::{
+    clocks::{init_clocks_and_plls, Clock},
+    multicore::{Multicore, Stack},
+    pac, pwm,
+    sio::Sio,
+    spi,
+    watchdog::Watchdog,
+};
 
 static mut CORE1_STACK: Stack<4096> = Stack::new();
 fn core1_task() -> ! {
@@ -131,7 +129,7 @@ fn main() -> ! {
     cs.set_low().unwrap();
 
     init_dma(&mut pac.RESETS, &mut pac.DMA, false);
-    let rom = core::include_bytes!("../assets/pokemon.gb");
+    let rom = core::include_bytes!("pokemon.gb");
     let rom = padme_core::Rom::load(rom.as_slice()).unwrap_or_else(|_| panic!());
 
     let mut emulator = padme_core::System::new(rom, MySerialConsole, MySpeaker);

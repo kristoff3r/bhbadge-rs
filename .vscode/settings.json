@@ -3,5 +3,9 @@
     "rust-analyzer.server.extraEnv": {
         "CARGO_TARGET_DIR": "target-ra"
     },
-    "editor.formatOnSave": true
+    "editor.formatOnSave": true,
+    "rust-analyzer.check.allTargets": false,
+    "rust-analyzer.check.extraArgs": [
+        "--examples"
+    ]
 }

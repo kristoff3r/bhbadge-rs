@@ -1,7 +1,4 @@
-use core::{
-    panic::PanicInfo,
-    sync::atomic::{AtomicU16, AtomicU32, AtomicU8, Ordering},
-};
+use core::sync::atomic::{AtomicU16, AtomicU32, AtomicU8, Ordering};
 
 use self::display::{DisplayBuffer, RawSpi};
 use bhboard_2022 as bsp;
